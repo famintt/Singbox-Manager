@@ -1,0 +1,8 @@
+name = "sbm"
+main = "worker.js"
+compatibility_date = "2024-09-23"
+
+# 可选：绑定自定义域名
+# routes = [
+#   { pattern = "sbm-interface.example.com", custom_domain = true }
+# ]

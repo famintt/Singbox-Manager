@@ -1,0 +1,7 @@
+* text=auto eol=lf
+*.sh text eol=lf
+*.env text eol=lf
+VERSION text eol=lf
+README.md text eol=lf
+*.yml text eol=lf
+*.md text eol=lf

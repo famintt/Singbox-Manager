@@ -1,0 +1,1009 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Singbox-Manager 一键SSH命令生成器</title>
+  <style>
+    :root {
+      --bg:#0b1020;
+      --card:#121831;
+      --ink:#e9edf7;
+      --sub:#b7c1d9;
+      --line:#263255;
+      --acc:#4f7cff;
+      --acc-soft:rgba(79,124,255,.14);
+      --ok:#22c55e;
+      --warn:#f59e0b;
+      --err:#ef4444;
+      --input-bg:#0d1430;
+      --button-bg-dark:#1a2346;
+      --body-bg: linear-gradient(180deg, var(--bg) 0%, #0e1530 100%);
+    }
+    body.light-mode {
+      --bg:#f4f7fc;
+      --card:#ffffff;
+      --ink:#1a202c;
+      --sub:#4a5568;
+      --line:#dbe2ef;
+      --acc:#3b6cf6;
+      --acc-soft:rgba(59,108,246,.10);
+      --ok:#16a34a;
+      --warn:#d97706;
+      --err:#dc2626;
+      --input-bg:#ffffff;
+      --button-bg-dark:#e2e8f0;
+      --body-bg: var(--bg);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--body-bg);
+      color: var(--ink);
+      font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+      transition: background-color .3s, color .3s;
+    }
+    .wrap { max-width: 1450px; margin: 28px auto 40px; padding: 0 20px; }
+    a { color: var(--acc); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    header { position: relative; margin-bottom: 18px; display: flex; justify-content: center; align-items: center; flex-direction: column; }
+    header h1 { font-size: 34px; margin: 0 0 8px; text-align: center; }
+    header p { margin: 0; font-size: 14px; color: var(--sub); line-height: 1.7; text-align: center; }
+    .theme-btn {
+      position: absolute; top: 0; right: 0;
+      width: 42px; height: 42px; border-radius: 50%;
+      border: 1px solid var(--line); background: var(--card);
+      font-size: 20px; cursor: pointer; line-height: 1;
+      transition: transform .2s;
+    }
+    .theme-btn:hover { transform: rotate(20deg); }
+
+    .tabs { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-bottom: 20px; }
+    .tab {
+      padding: 10px 18px; border-radius: 12px; cursor: pointer;
+      border: 1px solid var(--line); background: var(--card); color: var(--sub);
+      font-size: 15px; font-weight: 600; transition: all .2s;
+    }
+    .tab:hover { color: var(--ink); border-color: var(--acc); }
+    .tab.active { background: var(--acc); border-color: var(--acc); color: #fff; }
+    .tabpane { display: none; }
+    .tabpane.active { display: block; }
+
+    .grid { display: grid; grid-template-columns: 1.05fr 1fr; gap: 20px; }
+    .grid + .grid { margin-top: 20px; }
+    @media (max-width: 1100px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+    .card {
+      background: rgba(127,157,255,.055);
+      backdrop-filter: blur(6px);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 20px;
+      transition: background-color .3s, border-color .3s;
+    }
+    body.light-mode .card { background: var(--card); box-shadow: 0 1px 3px rgba(15,23,42,.06); }
+    .card h2 { margin: 0 0 6px; font-size: 19px; }
+    .card h3 { margin: 16px 0 8px; font-size: 15px; color: var(--acc); }
+    .card h3:first-of-type { margin-top: 10px; }
+    .col { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+    .col > .card:last-child { flex: 1 0 auto; }
+    .span2 { grid-column: 1 / -1; }
+    .tip { font-size: 12.5px; font-weight: 400; color: var(--sub); margin-left: 6px; }
+    .note { font-size: 12.5px; color: var(--sub); margin: 8px 0 0; line-height: 1.6; }
+    .note b { color: var(--warn); }
+
+    .row { display: grid; grid-template-columns: 205px 1fr; gap: 10px; align-items: center; margin: 10px 0; }
+    @media (max-width: 700px) { .row { grid-template-columns: 1fr; } }
+    .row > label { font-size: 14.5px; text-align: left; }
+    .ctl { position: relative; display: flex; gap: 8px; align-items: center; }
+    .ctl > input, .ctl > select { flex: 1; min-width: 0; }
+    .ctl > select.tight, .ctl > select.has-hint { flex: 1; min-width: 0; padding-right: 200px; }
+    .ctl > button { flex: 0 0 auto; }
+    .ctl > input { padding-right: 60px; }
+    .ctl > input.has-pick { padding-right: 194px; }
+    .ctl > input.has-hint { padding-right: 210px; }
+    .ctl > button.mini {
+      position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+      padding: 4px 10px; font-size: 12px;
+    }
+    .ctl > select.pick {
+      position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+      width: 180px; padding: 7px 8px; font-size: 13px; flex: none;
+      background: var(--button-bg-dark); border: 1px solid var(--line); border-radius: 8px;
+    }
+    input[type="text"], select, textarea {
+      width: 100%;
+      background: var(--input-bg);
+      border: 1px solid var(--line);
+      color: var(--ink);
+      border-radius: 10px;
+      padding: 9px 12px;
+      font: 14px/1.4 ui-monospace, SFMono-Regular, Consolas, "Courier New", monospace;
+      outline: none;
+      transition: border-color .2s;
+    }
+    input[type="text"]:focus, select:focus, textarea:focus { border-color: var(--acc); }
+    input::placeholder { color: var(--sub); opacity: .65; }
+    input:disabled { opacity: .4; cursor: not-allowed; }
+    select { font-family: inherit; cursor: pointer; }
+    .pill {
+      display: inline-block; font-size: 11px; padding: 1px 7px; margin-left: 4px;
+      border-radius: 6px; border: 1px solid var(--line);
+      background: var(--acc-soft); color: var(--acc);
+      font-family: ui-monospace, Consolas, monospace; vertical-align: 1px;
+    }
+
+    .ver {
+      display: inline-block; font-size: 12px; padding: 2px 9px; border-radius: 8px;
+      border: 1px solid var(--acc); color: var(--acc); vertical-align: 3px; margin-left: 8px;
+      font-family: ui-monospace, Consolas, monospace;
+    }
+
+    .pgrid { display: grid; grid-template-columns: 1fr; gap: 10px 14px; }
+    .pitem { display: grid; grid-template-columns: 205px 1fr; gap: 10px; align-items: center; }
+    .pitem label { font-size: 14px; margin: 0; }
+    @media (max-width: 700px) { .pitem { grid-template-columns: 1fr; } }
+    .sep { border-top: 1px dashed var(--line); margin: 14px 0 4px; }
+
+    button.primary, button.mini, button.ghost {
+      cursor: pointer; border-radius: 10px; font-size: 14px;
+      border: 1px solid var(--line); transition: all .2s;
+      font-family: inherit;
+    }
+    button.primary { background: var(--acc); color: #fff; border-color: var(--acc); padding: 9px 18px; font-weight: 600; }
+    button.primary:hover { filter: brightness(1.12); }
+    button.mini { background: var(--button-bg-dark); color: var(--ink); padding: 7px 12px; }
+    button.mini:hover { border-color: var(--acc); color: var(--acc); }
+    button.ghost { background: transparent; color: var(--sub); padding: 9px 18px; }
+    button.ghost:hover { color: var(--ink); border-color: var(--acc); }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+
+    .cmdlist { display: grid; grid-template-columns: 1fr 1fr; gap: 0 26px; }
+    @media (max-width: 900px) { .cmdlist { grid-template-columns: 1fr; } }
+    .crow {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 4px;
+      border-bottom: 1px dashed var(--line);
+    }
+    .crow code {
+      font-family: ui-monospace, Consolas, monospace; font-size: 12.5px;
+      color: var(--ok); word-break: break-all; flex: 1;
+    }
+    .crow .cdesc { flex: 0 0 auto; max-width: 46%; font-size: 12.5px; color: var(--sub); }
+    .crow button { flex: 0 0 auto; font-size: 12px; padding: 4px 10px; border-radius: 8px; }
+
+    .out-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 10px 0; }
+    .out-tools label { font-size: 14px; color: var(--sub); display: flex; align-items: center; gap: 6px; }
+    .out-tools select { width: auto; padding: 7px 10px; }
+    #cmd {
+      min-height: 150px; resize: vertical; white-space: pre;
+      font-size: 13.5px; line-height: 1.55;
+    }
+    .hint { font-size: 12.5px; color: var(--sub); margin: 8px 0 0; }
+    .hint-inline { position: absolute; right: 50px; top: 50%; transform: translateY(-50%); font-size: 12px; color: var(--sub); white-space: nowrap; pointer-events: none; max-width: 156px; overflow: hidden; text-overflow: ellipsis; }
+
+    footer { margin-top: 26px; text-align: center; font-size: 13px; color: var(--sub); line-height: 1.8; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <button id="theme-btn" class="theme-btn" title="切换深色/浅色模式">☀️</button>
+    <h1>Singbox-Manager 🧰 一键SSH命令生成器<span class="ver">__VERSION__</span></h1>
+    <p>
+      项目地址：<a href="https://github.com/famintt/sbm" target="_blank">github.com/famintt/sbm</a>
+      　|　其他命令查询：<a href="https://pkg.tbbbk.com/" target="_blank">pkg.tbbbk.com</a>（Linux 应用安装器 · 180+ 应用一键安装命令）
+    </p>
+  </header>
+
+  <!-- ================= Tab 1 : 一键安装命令 ================= -->
+  <section id="tab-sbm" class="tabpane active">
+    <div class="grid">
+      <div class="col">
+      <section class="card">
+        <h2>① 协议与端口 <span class="tip">填写端口即启用该协议，留空则不启用</span></h2>
+
+        <h3>直连协议（可自由组合）</h3>
+        <div class="pgrid">
+          <div class="pitem"><label>VLESS-Reality <span class="pill">vlrt</span></label><input type="text" class="port-input" id="vlrt" placeholder="如 2083，或点 🎲 随机" inputmode="numeric"></div>
+          <div class="pitem"><label>AnyTLS <span class="pill">anypt</span></label><input type="text" class="port-input" id="anypt" placeholder="如 5443，或点 🎲 随机" inputmode="numeric"></div>
+          <div class="pitem"><label>TUIC v5 <span class="pill">tupt</span></label><input type="text" class="port-input" id="tupt" placeholder="如 10443，或点 🎲 随机" inputmode="numeric"></div>
+          <div class="pitem"><label>Hysteria2 <span class="pill">hypt</span></label><input type="text" class="port-input" id="hypt" placeholder="如 11443，或点 🎲 随机" inputmode="numeric"></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>③ SNI 配置 <span class="tip">Reality 留空自动检测；其他协议 www.apple.com</span></h2>
+        <div class="row">
+          <label>Reality 伪装域名 <span class="pill">vl_sni</span></label>
+          <div class="ctl">
+            <input type="text" id="vl_sni" class="has-pick" placeholder="留空自动检测，或输入域名">
+            <select class="pick sni-pick" data-target="vl_sni"><option value="">自动检测</option><option value="auto">自动检测（显式）</option></select>
+          </div>
+        </div>
+        <div id="reality-key-wrap" style="display:none">
+        <div class="row">
+          <label>固定 Reality 密钥 <span class="pill">reality_private</span></label>
+          <div class="ctl">
+            <select id="reality-key-mode" class="has-hint">
+              <option value="" selected>不固定（自动生成）</option>
+              <option value="on">使用固定密钥对</option>
+            </select>
+            <span class="hint-inline">私钥敏感，仅在需要保留公钥时启用</span>
+          </div>
+        </div>
+        <div id="reality-key-extra" style="display:none">
+          <div class="row">
+            <label>Reality 私钥 <span class="pill">reality_private</span></label>
+            <input type="password" id="reality-private" placeholder="粘贴 PrivateKey，不会自动预填">
+          </div>
+          <div class="row">
+            <label>Reality 公钥 <span class="pill">reality_public</span></label>
+            <input type="text" id="reality-public" placeholder="粘贴 PublicKey">
+          </div>
+          <p class="note">私钥和公钥必须同时填写；只填一项会重新生成密钥对。私钥请勿泄露。</p>
+        </div>
+        </div>
+        <div class="sep"></div>
+        <div class="row">
+          <label>TUIC SNI <span class="pill">tu_sni</span></label>
+          <div class="ctl">
+            <input type="text" id="tu_sni" class="has-pick" placeholder="留空默认 www.apple.com；输入 auto 自动检测">
+            <select class="pick sni-pick" data-target="tu_sni"><option value="">选择…</option></select>
+          </div>
+        </div>
+        <div class="row">
+          <label>AnyTLS SNI <span class="pill">any_sni</span></label>
+          <div class="ctl">
+            <input type="text" id="any_sni" class="has-pick" placeholder="留空默认 www.apple.com；输入 auto 自动检测">
+            <select class="pick sni-pick" data-target="any_sni"><option value="">选择…</option></select>
+          </div>
+        </div>
+        <div class="row">
+          <label>Hysteria2 SNI <span class="pill">hy_sni</span></label>
+          <div class="ctl">
+            <input type="text" id="hy_sni" class="has-pick" placeholder="留空默认 www.apple.com；输入 auto 自动检测">
+            <select class="pick sni-pick" data-target="hy_sni"><option value="">选择…</option></select>
+          </div>
+        </div>
+        <p class="note"><b>SNI 安全提示：</b>不要使用 Cloudflare/Akamai 等代理或 CDN 域名作为 SNI，不确定就留空（内置默认值）。</p>
+      </section>
+
+      <section class="card">
+        <h2>⑤ VLESS+WS+CDN <span class="tip">填写 wspt 端口即启用；可切换 CDN 中转/直连</span></h2>
+        <div class="row">
+          <label>启用 CDN <span class="pill">ws_mode</span></label>
+          <div class="ctl">
+            <select id="ws-mode" class="has-hint">
+              <option value="" selected>不启用 CDN</option>
+              <option value="cdn">启用 CDN（Cloudflare 中转）</option>
+            </select>
+            <span class="hint-inline">选择后再填域名/证书</span>
+          </div>
+        </div>
+        <div id="ws-extra" style="display:none">
+        <div class="row">
+          <label>VLESS-WS-TLS 端口 <span class="pill">wspt</span></label>
+          <div class="ctl">
+            <input type="text" class="port-input has-hint" id="wspt" placeholder="如 443，或点 🎲 随机" inputmode="numeric">
+            <span class="hint-inline">源站 TLS 端口=统一回源端口（CF 证书方案）</span>
+            <button type="button" class="mini" id="rand-wspt" title="填入随机端口（10000-65535）">🎲</button>
+          </div>
+        </div>
+        <div class="row">
+          <label>CF 优选域名 <span class="pill">cdn_host</span></label>
+          <div class="ctl">
+            <input type="text" id="cdn_host" class="has-pick" placeholder="留空默认 saas.sin.fan">
+            <select class="pick cdn-pick" data-target="cdn_host"><option value="">选择…</option></select>
+          </div>
+        </div>
+        <div class="row">
+          <label>CDN 转发端口 <span class="pill">cdn_port</span></label>
+          <div class="ctl">
+            <select id="cdn_port" class="tight">
+              <option value="443" selected>443</option>
+              <option value="2053">2053</option>
+              <option value="2083">2083</option>
+              <option value="2087">2087</option>
+              <option value="2096">2096</option>
+              <option value="8443">8443</option>
+            </select>
+            <span class="hint-inline">CDN 与 CF 隧道共用端口</span>
+          </div>
+        </div>
+        <div class="row">
+          <label>CDN 回源域名 <span class="pill">ws_cdn_sni</span> <b style="color:var(--warn)">必填</b></label>
+          <input type="text" id="ws_cdn_sni" placeholder="必填：回源域名=SNI/Host（如 ws.example.com）">
+        </div>
+        <div class="row" id="row-ws-cert-content">
+          <label>源站证书（PEM） <span class="pill">cert</span> <b style="color:var(--warn)">必填</b></label>
+          <textarea id="ws_cert_content" rows="5" placeholder="粘贴 PEM 证书全文，如：&#10;-----BEGIN CERTIFICATE-----&#10;MIIE...&#10;-----END CERTIFICATE-----"></textarea>
+        </div>
+        <div class="row" id="row-ws-key-content">
+          <label>源站私钥（PEM） <span class="pill">key</span> <b style="color:var(--warn)">必填</b></label>
+          <textarea id="ws_key_content" rows="5" placeholder="粘贴 PEM 私钥全文，如：&#10;-----BEGIN PRIVATE KEY-----&#10;MIIE...&#10;-----END PRIVATE KEY-----"></textarea>
+        </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>⑦ MTProxy <span class="tip">独立 Go 版（mtg），不依赖 sing-box</span></h2>
+        <div class="row">
+          <label>启用 MTProxy <span class="pill">mtp</span></label>
+          <div class="ctl">
+            <select id="mtp-mode" class="has-hint">
+              <option value="" selected>不启用 MTProxy</option>
+              <option value="on">启用 MTProxy（mtg）</option>
+            </select>
+            <span class="hint-inline">选择后再填监听端口</span>
+          </div>
+        </div>
+        <div id="mtp-extra" style="display:none">
+          <div class="row">
+            <label>监听端口 <span class="pill">mtpt</span></label>
+            <input type="text" class="port-input" id="mtpt" placeholder="填写端口即启用，或点 🎲 随机" inputmode="numeric">
+          </div>
+          <div class="cmdlist" id="mtp-cmds"></div>
+        </div>
+      </section>
+      </div>
+
+      <div class="col">
+      <section class="card">
+        <h2>② 全局配置</h2>
+        <div class="row">
+          <label>UUID <span class="pill">uuid</span></label>
+          <div class="ctl">
+            <input type="text" id="uuid" placeholder="留空自动生成（VLESS/TUIC 共用）">
+            <button type="button" class="mini" id="gen-uuid">生成</button>
+          </div>
+        </div>
+        <div class="row">
+          <label>节点名称前缀 <span class="pill">name</span></label>
+          <input type="text" id="name" placeholder="如 HK，生成 HK-Reality / HK-HY2 等">
+        </div>
+        <div class="row">
+          <label>密码 <span class="pill">passwd</span></label>
+          <div class="ctl">
+            <input type="text" id="passwd" placeholder="留空自动生成（AnyTLS/HY2/TUIC）">
+            <button type="button" class="mini" id="gen-passwd">生成</button>
+          </div>
+        </div>
+        <div class="sep"></div>
+        <div class="row">
+          <label>高级网络设置 <span class="pill">advanced</span></label>
+          <div class="ctl">
+            <select id="advanced-net" class="has-hint">
+              <option value="" selected>不展开（使用默认值）</option>
+              <option value="on">展开：内核调优 / TUIC 0-RTT / DNS</option>
+            </select>
+            <span class="hint-inline">默认 net_tune=1、0-RTT=1、DNS 关闭</span>
+          </div>
+        </div>
+        <div id="advanced-net-extra" style="display:none">
+        <div class="row">
+          <label>网络内核调优 <span class="pill">net_tune</span></label>
+          <select id="net_tune">
+            <option value="1" selected>1 · BBR+fq+大缓冲（默认开启，root 生效）</option>
+            <option value="0">0 · 关闭</option>
+          </select>
+        </div>
+        <div class="row">
+          <label>TUIC 0-RTT <span class="pill">tuic_zero_rtt</span></label>
+          <select id="tuic_zero_rtt">
+            <option value="1" selected>1 · 开启（默认，多次建连更快）</option>
+            <option value="0">0 · 关闭（兼容个别受限网络）</option>
+          </select>
+        </div>
+        <div class="row">
+          <label>DNS 加密解析 <span class="pill">dns_servers</span></label>
+          <div class="ctl">
+            <input type="text" id="dns_servers" placeholder="留空=关闭（默认）；如 https://1.1.1.1/dns-query,https://dns.google/resolve">
+          </div>
+        </div>
+        <div class="row">
+          <label>分享服务器 IP <span class="pill">server_ip</span></label>
+          <input type="text" id="server_ip" placeholder="留空自动探测；如 35.229.130.40">
+        </div>
+        <div class="row">
+          <label>直连域名 <span class="pill">direct_host</span></label>
+          <input type="text" id="direct_host" placeholder="留空使用服务器 IP；如 node.example.com">
+        </div>
+        <div class="row">
+          <label>调试日志 <span class="pill">debug_flag</span></label>
+          <select id="debug_flag">
+            <option value="0" selected>0 · 关闭</option>
+            <option value="1">1 · 开启 debug（排查完建议关闭）</option>
+          </select>
+        </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>④ Argo CF 隧道（VLESS + Argo）<span class="tip">默认不启用；与⑤互相独立</span></h2>
+        <div class="row">
+          <label>启用 Argo <span class="pill">argo</span></label>
+          <div class="ctl">
+            <select id="argo" class="has-hint">
+              <option value="" selected>不启用 Argo</option>
+              <option value="vlpt">启用 Argo（VLESS-WS + Argo）</option>
+            </select>
+            <span class="hint-inline">选择启用后再填下方端口</span>
+          </div>
+        </div>
+        <div id="argo-extra" style="display:none">
+        <div class="row">
+          <label>CF 优选域名 <span class="pill">argo_cdn_host</span></label>
+          <div class="ctl">
+            <input type="text" id="argo_cdn_host" class="has-pick" placeholder="留空默认 saas.sin.fan（Argo 专属，独立于②）">
+            <select class="pick cdn-pick" data-target="argo_cdn_host"><option value="">选择…</option></select>
+          </div>
+        </div>
+        <div class="row">
+          <label>CDN 转发端口 <span class="pill">argo_cdn_port</span></label>
+          <div class="ctl">
+            <select id="argo_cdn_port" class="tight">
+              <option value="443" selected>443</option>
+              <option value="2053">2053</option>
+              <option value="2083">2083</option>
+              <option value="2087">2087</option>
+              <option value="2096">2096</option>
+              <option value="8443">8443</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <label>Argo 本地端口 <span class="pill">argo_pt</span></label>
+          <input type="text" class="port-input" id="argo_pt" placeholder="默认 8001" inputmode="numeric">
+        </div>
+        <div class="sep"></div>
+        <h3>Argo 固定隧道 <span class="tip">临时隧道留空即可</span></h3>
+        <div class="row">
+          <label>固定隧道域名 <span class="pill">agn</span></label>
+          <input type="text" id="agn" placeholder="如 argo.example.com，留空为临时隧道">
+        </div>
+        <div class="row">
+          <label>隧道 Token <span class="pill">agk</span></label>
+          <input type="text" id="agk" placeholder="ey 开头字符串或 {…} JSON">
+        </div>
+        </div>
+        <div class="sep"></div>
+      </section>
+
+      <section class="card">
+        <h2>⑥ SOCKS5 账号 <span class="tip">填写 socks5pt 后生效</span></h2>
+        <div class="row">
+          <label>启用 SOCKS5 <span class="pill">socks5</span></label>
+          <div class="ctl">
+            <select id="socks5-mode" class="has-hint">
+              <option value="" selected>不启用 SOCKS5</option>
+              <option value="on">启用 SOCKS5（用户名/密码认证）</option>
+            </select>
+            <span class="hint-inline">选择后再填端口和账号</span>
+          </div>
+        </div>
+        <div id="socks5-extra" style="display:none">
+          <div class="row">
+            <label>SOCKS5 端口 <span class="pill">socks5pt</span></label>
+            <input type="text" class="port-input" id="socks5pt" placeholder="如 31017，或点 🎲 随机" inputmode="numeric">
+          </div>
+          <div class="row">
+            <label style="white-space:nowrap">SOCKS5 用户名 <span class="pill">socks5_username</span></label>
+            <div class="ctl">
+              <input type="text" id="socks5-username" placeholder="默认 user，或点右侧按钮">
+              <button type="button" class="mini" id="gen-s5user">生成</button>
+            </div>
+          </div>
+          <div class="row">
+            <label>SOCKS5 密码 <span class="pill">socks5_password</span></label>
+            <div class="ctl">
+              <input type="text" id="socks5-password" placeholder="留空随机生成，或点右侧按钮">
+              <button type="button" class="mini" id="gen-s5pass">生成</button>
+            </div>
+          </div>
+          <div class="sep"></div>
+          <div class="row">
+            <label>源地址白名单 <span class="pill">socks5_wl_flag</span></label>
+            <div class="ctl">
+              <select id="socks5-wl-mode" class="has-hint">
+                <option value="" selected>不启用白名单</option>
+                <option value="on">启用 iptables 白名单</option>
+              </select>
+              <span class="hint-inline">未安装 iptables 的系统不会生效</span>
+            </div>
+          </div>
+          <div id="socks5-wl-extra" style="display:none">
+            <div class="row">
+              <label>允许的 IP/CIDR <span class="pill">socks5_ips</span></label>
+              <input type="text" id="socks5-ips" placeholder="如 1.2.3.4,10.0.0.0/8,2001:db8::/32">
+            </div>
+            <p class="note">多个地址用英文逗号分隔；启用后仅这些来源可访问 SOCKS5 端口。</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>⑧ 订阅设置 <span class="tip">可选；使用 sub-worker 固定订阅</span></h2>
+        <div class="row">
+          <label>启用订阅 <span class="pill">sub</span></label>
+          <div class="ctl">
+            <select id="sub-mode" class="has-hint">
+              <option value="" selected>不启用固定订阅</option>
+              <option value="on">启用 Worker 固定订阅</option>
+            </select>
+            <span class="hint-inline">选择后再填域名和 TOKEN</span>
+          </div>
+        </div>
+        <div id="sub-extra" style="display:none">
+        <div class="row">
+          <label>订阅域名 <span class="pill">sub_domain</span></label>
+          <input type="text" id="sub-domain" placeholder="如 https://sbsub.example.com 或 https://xxx.workers.dev">
+        </div>
+        <div class="row">
+          <label>订阅密钥 <span class="pill">sub_token</span></label>
+          <input type="text" id="sub-token" placeholder="sub-worker 的 TOKEN（建议 UUID）">
+        </div>
+        <p class="note">
+          需先部署
+          <a href="https://github.com/famintt/sub-worker" target="_blank" rel="noopener">sub-worker</a>：
+          创建 KV 绑定 <code>SUBS</code>，设置 Secret <code>TOKEN</code>，再把 Worker 域名和同一个 TOKEN 填到上面两行。
+          两项都填写后才会启用 Worker 订阅；留空则使用原临时订阅模式。
+        </p>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>⑨ 执行动作 <span class="tip">尾部参数</span></h2>
+        <div class="row">
+          <label>执行动作</label>
+          <select id="sbm-tail">
+            <option value="rep">rep · 覆盖式安装（清空已有节点后按上方配置重建）</option>
+            <option value="ins">ins · 追加式安装（保留已有节点，追加新节点）</option>
+          </select>
+        </div>
+        <div class="row">
+          <label>命令形式</label>
+          <select id="cmd-form">
+            <option value="install">未安装 · 用安装脚本（自动下载并安装）</option>
+            <option value="sbm">已安装 · 直接调用 sbm 命令</option>
+          </select>
+        </div>
+        <div class="row" id="row-install-src">
+          <label>安装源（仅安装脚本形式）</label>
+          <select id="install-src">
+            <option value="release">GitHub Release（推荐，经 SHA256 强校验）</option>
+            <option value="raw">raw.githubusercontent.com/main（开发者选项 · 不经 Release 强校验）</option>
+          </select>
+        </div>
+      </section>
+
+      </div>
+
+      <section class="card span2">
+        <h2>sbm 快捷指令速查 <span class="tip">安装完成后即可在服务器直接使用</span></h2>
+        <div class="cmdlist" id="sbm-cmds"></div>
+      </section>
+    </div>
+  </section>
+
+  <!-- ================= 输出区 ================= -->
+  <div class="grid">
+    <section class="card span2">
+      <h2>生成的 SSH 一键命令 <span class="pill" id="out-script">sb.sh</span></h2>
+      <div class="out-tools">
+        <label>下载方式
+          <select id="dl">
+            <option value="curl">curl</option>
+            <option value="wget">wget</option>
+          </select>
+        </label>
+        <button id="copy" class="primary" type="button">📋 复制命令</button>
+        <button id="reset" class="ghost" type="button">♻️ 重置表单</button>
+      </div>
+      <textarea id="cmd" readonly spellcheck="false"></textarea>
+      <p class="hint">提示：整段复制粘贴到 SSH 终端回车即可执行（多行 \ 续行符已处理好）。字符串值已用英文单引号包裹，含特殊字符的密码也不会被截断；留空的项目不会出现在命令里。</p>
+    </section>
+  </div>
+
+  <footer>
+    本页面为 <a href="https://github.com/famintt/sbm" target="_blank">famintt/sbm</a> 的一键命令生成辅助界面，仅供学习交流，请遵守所在地法律法规。
+  </footer>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var $id = function (x) { return document.getElementById(x); };
+  var val = function (x) { var e = $id(x); return e ? String(e.value).trim() : ''; };
+
+  var RELEASE_BASE = 'https://github.com/famintt/sbm/releases/latest/download/install.sh';
+  var RAW_BASE = 'https://raw.githubusercontent.com/famintt/sbm/main/install.sh';
+
+  var SBM_CMDS = [
+    ['sbm', '打开交互式主菜单'],
+    ['sbm help', '查看命令用法'],
+    ['sbm list', '查看节点与分享链接'],
+    ['sbm sub url', '查看/生成订阅链接'],
+    ['sbm sub status', '查看订阅服务状态'],
+    ['sbm logs', '查看运行日志（最近100行）'],
+    ['sbm log_stop', '查看服务停止原因'],
+    ['sbm rep', '覆盖式一键安装（按环境变量重建节点）'],
+    ['sbm ins', '追加式一键安装（保留已有节点）'],
+    ['sbm delall', '删除全部节点并重启服务'],
+    ['sbm un', '卸载 Singbox Manager'],
+    ['systemctl status singbox-manager', '查看服务状态（systemd）'],
+    ['journalctl -u singbox-manager -e --no-pager', '查看服务日志（systemd）'],
+    ['tail -n 100 /usr/local/etc/singbox-manager/logs/sing-box.log', '查看 sing-box 运行日志（最近100行）'],
+    ['cat /usr/local/etc/singbox-manager/config.json', '查看生成的 sing-box 配置'],
+    ['ls -l /usr/local/etc/singbox-manager/certs/', '查看托管证书文件']
+  ];
+
+  var MTP_CMDS = [
+    ['mtp info', '查看已安装服务连接信息（tg://proxy 链接）'],
+    ['mtp restart', '重启 MTProxy 服务'],
+    ['mtp un', '全量卸载并清理（服务/二进制/配置）']
+  ];
+
+  /* ---------------- helpers ---------------- */
+  function isNum(v) { return /^-?\d+(\.\d+)?$/.test(v); }
+  // PEM 内容转标准 base64（btoa 仅支持 Latin1，先做 UTF-8 编码避免多字节报错）
+  function b64(s) {
+    return btoa(unescape(encodeURIComponent(s)));
+  }
+  // sbm 约定：数字裸写，字符串值用英文单引号包裹
+  function qv(v) {
+    if (v === '') return "''";
+    if (isNum(v)) return v;
+    return "'" + v.replace(/'/g, "'\\''") + "'";
+  }
+  function numEnv(k, id, envs) {
+    var v = val(id);
+    if (v) envs.push([k, isNum(v) ? v : qv(v)]);
+  }
+  function strEnv(k, id, envs) {
+    var v = val(id);
+    if (v) envs.push([k, qv(v)]);
+  }
+  function wrapCmd(envs, tail) {
+    var form = val('cmd-form') || 'install';
+    if (form === 'sbm') {
+      var s = '';
+      envs.forEach(function (p) {
+        if (p[1] !== '' && p[1] != null) s += p[0] + '=' + p[1] + ' ';
+      });
+      return s + 'sbm' + (tail ? ' ' + tail : '');
+    }
+    var url = val('install-src') === 'raw' ? RAW_BASE : RELEASE_BASE;
+    var dl = val('dl') || 'curl';
+    // 首选用户选择的下载器，失败（如 Alpine 无 curl）自动回退另一种，避免
+    // `bash <(curl ...)` 在精简系统上静默失败（v1.6.0）。
+    var fetcher = dl === 'curl'
+      ? ('curl -fsSL ' + url + ' 2>/dev/null || wget -qO- ' + url)
+      : ('wget -qO- ' + url + ' 2>/dev/null || curl -fsSL ' + url);
+    var s2 = '';
+    envs.forEach(function (p) {
+      if (p[1] !== '' && p[1] != null) s2 += p[0] + '=' + p[1] + ' \\\n';
+    });
+    return s2 + 'bash <(' + fetcher + ')' + (tail ? ' ' + tail : '');
+  }
+  function genUuid() {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      var r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+  }
+  // 纯字母数字密码（不含易混淆的 0/O/1/l/I），无转义隐患
+  function genPassword() {
+    var chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+    var arr = new Uint8Array(16);
+    if (window.crypto && crypto.getRandomValues) crypto.getRandomValues(arr);
+    else for (var i = 0; i < 16; i++) arr[i] = Math.random() * 256 | 0;
+    return Array.prototype.map.call(arr, function (x) { return chars[x % chars.length]; }).join('');
+  }
+  async function copyText(t) {
+    try { await navigator.clipboard.writeText(t); return true; }
+    catch (e) {
+      var ta = document.createElement('textarea');
+      ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (_) {}
+      ta.remove(); return ok;
+    }
+  }
+  function flashBtn(btn, ok) {
+    if (!btn) return;
+    var old = btn.getAttribute('data-old') || btn.textContent;
+    btn.setAttribute('data-old', old);
+    btn.textContent = ok ? '✅ 已复制' : '❌ 复制失败';
+    clearTimeout(btn._t);
+    btn._t = setTimeout(function () { btn.textContent = old; }, 1200);
+  }
+
+  /* ---------------- 速查列表渲染 ---------------- */
+  function renderCmdList(id, rows) {
+    var box = $id(id);
+    if (!box) return;
+    box.innerHTML = '';
+    rows.forEach(function (r) {
+      var div = document.createElement('div');
+      div.className = 'crow';
+      var code = document.createElement('code');
+      code.textContent = r[0];
+      var desc = document.createElement('span');
+      desc.className = 'cdesc';
+      desc.textContent = r[1];
+      var btn = document.createElement('button');
+      btn.className = 'mini';
+      btn.type = 'button';
+      btn.textContent = '复制';
+      btn.addEventListener('click', async function () {
+        flashBtn(btn, await copyText(r[0]));
+      });
+      div.appendChild(code); div.appendChild(desc); div.appendChild(btn);
+      box.appendChild(div);
+    });
+  }
+
+  /* ---------------- 命令生成 ---------------- */
+  function buildSbm() {
+    var tail = val('sbm-tail') || 'rep';
+    var envs = [];
+    // MTProxy：独立 Go 版，端口变量 mtpt；与下方 sing-box 协议无关
+    if (val('mtp-mode') === 'on') {
+      numEnv('mtpt', 'mtpt', envs);
+    }
+    // 直连协议端口
+    ['vlrt', 'wspt', 'tupt', 'anypt', 'hypt'].forEach(function (k) { numEnv(k, k, envs); });
+    if (val('socks5-mode') === 'on') {
+      numEnv('socks5pt', 'socks5pt', envs);
+    }
+    // Argo（④ 启用开关=vlpt 时才带上；argo_cdn_host/argo_cdn_port 独立于 WS-CDN）
+    if (val('argo') === 'vlpt') {
+      numEnv('argo_pt', 'argo_pt', envs);
+      envs.push(['argo', "'vlpt'"]);
+      strEnv('argo_cdn_host', 'argo_cdn_host', envs);
+      strEnv('argo_cdn_port', 'argo_cdn_port', envs);
+    }
+    // 全局
+    strEnv('uuid', 'uuid', envs);
+    strEnv('name', 'name', envs);
+    strEnv('passwd', 'passwd', envs);
+    // 高级网络设置：只有展开时才下发；默认保持 net_tune=1、0-RTT=1、DNS 关闭
+    if (val('advanced-net') === 'on') {
+      if (val('net_tune') === '0') envs.push(['net_tune', "'0'"]);
+      if (val('tuic_zero_rtt') === '0') envs.push(['tuic_zero_rtt', "'0'"]);
+      strEnv('dns_servers', 'dns_servers', envs);
+      strEnv('server_ip', 'server_ip', envs);
+      strEnv('direct_host', 'direct_host', envs);
+      if (val('debug_flag') === '1') envs.push(['debug_flag', "'1'"]);
+    }
+    // SNI 与 WS
+    strEnv('vl_sni', 'vl_sni', envs);
+    if (val('vlrt') && val('reality-key-mode') === 'on') {
+      strEnv('reality_private', 'reality-private', envs);
+      strEnv('reality_public', 'reality-public', envs);
+    }
+    // WS-TLS：wspt 启用；ws-mode 控制 CDN 中转或直连
+    if (val('wspt') && val('ws-mode') === 'cdn') {
+      var wsMode = val('ws-mode') || 'cdn';
+      envs.push(['ws_mode', qv(wsMode)]);
+      if (wsMode === 'cdn') {
+        strEnv('cdn_host', 'cdn_host', envs);
+        strEnv('cdn_port', 'cdn_port', envs);
+        strEnv('ws_cdn_sni', 'ws_cdn_sni', envs);
+        // CF 证书方案：CDN 模式下下发 cert='custom' + 粘贴的证书内容
+        envs.push(['cert', "'custom'"]);
+        var certPem = val('ws_cert_content') || '';
+        var keyPem = val('ws_key_content') || '';
+        if (certPem && keyPem) {
+          envs.push(['cert_b64', qv(b64(certPem))]);
+          envs.push(['key_b64', qv(b64(keyPem))]);
+        }
+      }
+    }
+    strEnv('tu_sni', 'tu_sni', envs);
+    strEnv('any_sni', 'any_sni', envs);
+    strEnv('hy_sni', 'hy_sni', envs);
+    // Argo 固定隧道
+    strEnv('agn', 'agn', envs);
+    strEnv('agk', 'agk', envs);
+    // SOCKS5
+    if (val('socks5-mode') === 'on') {
+      strEnv('socks5_username', 'socks5-username', envs);
+      strEnv('socks5_password', 'socks5-password', envs);
+      if (val('socks5-wl-mode') === 'on') {
+        envs.push(['socks5_wl_flag', "'1'"]);
+        strEnv('socks5_ips', 'socks5-ips', envs);
+      }
+    }
+    // Worker 固定订阅：启用且域名和密钥都填写才下发
+    var subDomain = val('sub-domain');
+    var subToken = val('sub-token');
+    if (val('sub-mode') === 'on' && subDomain && subToken) {
+      envs.push(['sub', "'1'"]);
+      envs.push(['sub_mode', "'worker'"]);
+      envs.push(['sub_domain', qv(subDomain)]);
+      envs.push(['sub_token', qv(subToken)]);
+    }
+    return wrapCmd(envs, tail);
+  }
+
+  function regen() {
+    $id('cmd').value = buildSbm();
+  }
+
+  /* ---------------- 状态联动 ---------------- */
+  function syncArgo() {
+    var on = val('argo') === 'vlpt';
+    $id('argo_pt').disabled = !on;
+    var box = $id('argo-extra');
+    if (box) box.style.display = on ? '' : 'none';
+  }
+  function syncCert() { /* 证书/私钥行始终可编辑，不做锁定 */ }
+  function syncWs() {
+    var on = val('ws-mode') === 'cdn';
+    ['cdn_host', 'cdn_port', 'ws_cdn_sni', 'ws_cert_content', 'ws_key_content', 'wspt'].forEach(function (id) {
+      var el = $id(id); if (el) el.disabled = !on;
+    });
+    var box = $id('ws-extra');
+    if (box) box.style.display = on ? '' : 'none';
+  }
+  function syncMtp() {
+    var on = val('mtp-mode') === 'on';
+    var port = $id('mtpt'); if (port) port.disabled = !on;
+    var box = $id('mtp-extra'); if (box) box.style.display = on ? '' : 'none';
+  }
+  function syncSocks() {
+    var on = val('socks5-mode') === 'on';
+    ['socks5pt', 'socks5-username', 'socks5-password', 'socks5-wl-mode'].forEach(function (id) {
+      var el = $id(id); if (el) el.disabled = !on;
+    });
+    var box = $id('socks5-extra'); if (box) box.style.display = on ? '' : 'none';
+  }
+  function syncSocksWl() {
+    var on = val('socks5-mode') === 'on' && val('socks5-wl-mode') === 'on';
+    var box = $id('socks5-wl-extra'); if (box) box.style.display = on ? '' : 'none';
+    var input = $id('socks5-ips'); if (input) input.disabled = !on;
+  }
+  function syncReality() {
+    var enabled = !!val('vlrt');
+    var on = enabled && val('reality-key-mode') === 'on';
+    var wrap = $id('reality-key-wrap'); if (wrap) wrap.style.display = enabled ? '' : 'none';
+    var box = $id('reality-key-extra'); if (box) box.style.display = on ? '' : 'none';
+    ['reality-private', 'reality-public'].forEach(function (id) {
+      var el = $id(id); if (el) el.disabled = !on;
+    });
+  }
+  function syncAdvanced() {
+    var on = val('advanced-net') === 'on';
+    ['net_tune', 'tuic_zero_rtt', 'dns_servers', 'server_ip', 'direct_host', 'debug_flag'].forEach(function (id) {
+      var el = $id(id); if (el) el.disabled = !on;
+    });
+    var box = $id('advanced-net-extra'); if (box) box.style.display = on ? '' : 'none';
+  }
+  function syncSub() {
+    var on = val('sub-mode') === 'on';
+    ['sub-domain', 'sub-token'].forEach(function (id) {
+      var el = $id(id); if (el) el.disabled = !on;
+    });
+    var box = $id('sub-extra'); if (box) box.style.display = on ? '' : 'none';
+  }
+  function syncAction() {
+    var install = val('cmd-form') === 'install';
+    var row = $id('row-install-src'); if (row) row.style.display = install ? '' : 'none';
+    var src = $id('install-src'); if (src) src.disabled = !install;
+  }
+  function syncForm() {
+    var form = val('cmd-form') || 'install';
+    $id('dl').disabled = form === 'sbm';
+    $id('install-src').disabled = form === 'sbm';
+  }
+
+  /* ---------------- 事件绑定 ---------------- */
+  document.addEventListener('input', function () { syncReality(); regen(); });
+  document.addEventListener('change', function () { syncArgo(); syncCert(); syncWs(); syncMtp(); syncSocks(); syncSocksWl(); syncReality(); syncAdvanced(); syncSub(); syncAction(); syncForm(); regen(); });
+
+  $id('gen-uuid').addEventListener('click', function () { $id('uuid').value = genUuid(); regen(); });
+  $id('gen-passwd').addEventListener('click', function () { $id('passwd').value = genPassword(); regen(); });
+  $id('gen-s5user').addEventListener('click', function () { $id('socks5-username').value = genPassword(); regen(); });
+  $id('gen-s5pass').addEventListener('click', function () { $id('socks5-password').value = genPassword(); regen(); });
+
+  $id('copy').addEventListener('click', async function () {
+    flashBtn($id('copy'), await copyText($id('cmd').value));
+  });
+  $id('reset').addEventListener('click', function () { location.reload(); });
+
+  /* ---------------- 主题 ---------------- */
+  var themeBtn = $id('theme-btn');
+  function applyTheme(t) {
+    document.body.classList.toggle('light-mode', t === 'light');
+    themeBtn.textContent = t === 'light' ? '🌙' : '☀️';
+    try { localStorage.setItem('sbm-theme', t); } catch (e) {}
+  }
+  themeBtn.addEventListener('click', function () {
+    applyTheme(document.body.classList.contains('light-mode') ? 'dark' : 'light');
+  });
+  var savedTheme = 'dark';
+  try { savedTheme = localStorage.getItem('sbm-theme') || 'dark'; } catch (e) {}
+  applyTheme(savedTheme);
+
+  /* ---------------- 初始化 ---------------- */
+  // 给所有端口输入框追加 🎲 随机端口按钮
+  function randPort() { return 10000 + Math.floor(Math.random() * 55536); }
+  document.querySelectorAll('input.port-input').forEach(function (inp) {
+    if (inp.closest('.ctl')) return; /* already wrapped (e.g. wspt with hint-inline) */
+    var wrap = document.createElement('div');
+    wrap.className = 'ctl';
+    inp.parentNode.insertBefore(wrap, inp);
+    wrap.appendChild(inp);
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'mini';
+    btn.textContent = '🎲';
+    btn.title = '填入随机端口（10000-65535）';
+    btn.addEventListener('click', function () {
+      if (inp.disabled) inp.disabled = false;
+      inp.value = randPort();
+      regen();
+    });
+    wrap.appendChild(btn);
+  });
+
+  // wspt 因带 hint-inline 已手动包裹 .ctl，单独绑定 🎲
+  var wspBtn = $id('rand-wspt');
+  if (wspBtn) {
+    wspBtn.addEventListener('click', function () {
+      $id('wspt').value = randPort();
+      regen();
+    });
+  }
+
+  renderCmdList('sbm-cmds', SBM_CMDS);
+  renderCmdList('mtp-cmds', MTP_CMDS);
+
+  // SNI 伪装域名候选（下拉选择填入输入框，输入框仍可手输，留空用内置默认值）
+  var SNI_LIST = ['www.bing.com', 'www.microsoft.com', 'www.amazon.com', 'www.salesforce.com', 'www.nvidia.com', 'www.adobe.com', 'www.oracle.com', 'www.apple.com', 'www.ua.edu'];
+  document.querySelectorAll('select.sni-pick').forEach(function (sel) {
+    SNI_LIST.forEach(function (d) {
+      var o = document.createElement('option');
+      o.value = d;
+      o.textContent = d;
+      sel.appendChild(o);
+    });
+    sel.addEventListener('change', function () {
+      if (!sel.value) return;
+      var target = $id(sel.getAttribute('data-target'));
+      target.value = sel.value;
+      sel.selectedIndex = 0;
+      regen();
+    });
+  });
+
+  // CF 优选域名候选（留空默认 saas.sin.fan）
+  var CDN_LIST = ['saas.sin.fan', 'cf.090227.xyz', 'store.ubi.com', 'mfa.gov.ua', 'cucc.cloudflare.seeck.cn', 'cdns.doon.eu.org', 'ip.cfcdn.ccwu.cc', 'cf.vvi.netlib.re', 'cf.cnno.de', 'cdn.cnno.de', 'cdn.ddeed.de', 'www.visa.com.sg'];
+  document.querySelectorAll('select.cdn-pick').forEach(function (sel) {
+    CDN_LIST.forEach(function (d) {
+      var o = document.createElement('option');
+      o.value = d;
+      o.textContent = d;
+      sel.appendChild(o);
+    });
+    sel.addEventListener('change', function () {
+      if (!sel.value) return;
+      var target = $id(sel.getAttribute('data-target'));
+      target.value = sel.value;
+      sel.selectedIndex = 0;
+      regen();
+    });
+  });
+
+syncArgo(); syncCert(); syncWs(); syncMtp(); syncSocks(); syncSocksWl(); syncReality(); syncAdvanced(); syncSub(); syncAction(); syncForm();
+  regen();
+})();
+</script>
+</body>
+</html>
