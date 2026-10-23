@@ -7,7 +7,7 @@ import os
 HEADER = '''/**
  * singbox-manager interface
  * Singbox-Manager 一键SSH命令生成器 - Cloudflare Workers 单文件版
- * 项目地址: https://github.com/famintt/sbm
+ * 项目地址: https://github.com/famintt/Singbox-Manager
  *
  * 部署方式一(控制台): CF Dashboard -> Workers & Pages -> Create Worker -> 粘贴本文件全部内容 -> Deploy
  * 部署方式二(Wrangler): 本目录下执行 `wrangler deploy` (配置见 wrangler.toml)

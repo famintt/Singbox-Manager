@@ -7,15 +7,15 @@
 ## 快速安装
 
 ```bash
-bash <(curl -fsSL https://github.com/famintt/sbm/releases/latest/download/install.sh)
+bash <(curl -fsSL https://github.com/famintt/Singbox-Manager/releases/latest/download/install.sh)
 sbm          # 打开交互菜单
 ```
 
 无 curl 的精简系统（如纯净 Alpine）可用 wget，或让命令自动回退：
 
 ```bash
-bash <(wget -qO- https://github.com/famintt/sbm/releases/latest/download/install.sh)
-bash <(curl -fsSL https://github.com/famintt/sbm/releases/latest/download/install.sh 2>/dev/null || wget -qO- https://github.com/famintt/sbm/releases/latest/download/install.sh)
+bash <(wget -qO- https://github.com/famintt/Singbox-Manager/releases/latest/download/install.sh)
+bash <(curl -fsSL https://github.com/famintt/Singbox-Manager/releases/latest/download/install.sh 2>/dev/null || wget -qO- https://github.com/famintt/Singbox-Manager/releases/latest/download/install.sh)
 ```
 
 ## 环境变量一键安装
@@ -23,7 +23,7 @@ bash <(curl -fsSL https://github.com/famintt/sbm/releases/latest/download/instal
 端口变量启用对应协议，其余可选；`rep` 清空重建（适合首次/重置），`ins` 保留已有节点追加：
 
 ```bash
-vlrt=2083 hypt=2082 name='HK' bash <(curl -fsSL https://github.com/famintt/sbm/releases/latest/download/install.sh)
+vlrt=2083 hypt=2082 name='HK' bash <(curl -fsSL https://github.com/famintt/Singbox-Manager/releases/latest/download/install.sh)
 vlrt=2083 hypt=2082 name='HK' sbm rep      # 已安装时
 ```
 
@@ -80,11 +80,11 @@ v1.2.4 起 WS-TLS 的 CDN 中转采用 **Cloudflare 证书方案**：源站只�
 
 ```bash
 # 示例：CDN 中转，Full 模式（自签证书，零额外准备）
-wspt=443 cdn_host=你的优选域名 cdn_port=443 ws_cdn_sni=ws.example.com name='HK' bash <(curl -fsSL https://github.com/famintt/sbm/releases/latest/download/install.sh)
+wspt=443 cdn_host=你的优选域名 cdn_port=443 ws_cdn_sni=ws.example.com name='HK' bash <(curl -fsSL https://github.com/famintt/Singbox-Manager/releases/latest/download/install.sh)
 
 # 示例：CDN 中转，Full(Strict)（Cloudflare Origin CA 证书，PEM 内容 base64 后直接传，界面自动处理）
 # cert_b64 与 key_b64 用界面生成器粘贴证书/私钥内容即可，无需手写 base64
-wspt=443 cdn_host=你的优选域名 ws_cdn_sni=ws.example.com cert=custom cert_b64=... key_b64=... name='HK' bash <(curl -fsSL https://github.com/famintt/sbm/releases/latest/download/install.sh)
+wspt=443 cdn_host=你的优选域名 ws_cdn_sni=ws.example.com cert=custom cert_b64=... key_b64=... name='HK' bash <(curl -fsSL https://github.com/famintt/Singbox-Manager/releases/latest/download/install.sh)
 ```
 
 > 兼容性：v1.2.3 遗留的 `ws_cdn_origin_port`（明文 HTTP 回源 inbound）已废弃，升级后源站自动只保留 TLS inbound；已部署的 Cloudflare SSL 模式请从 **Flexible** 改为 Full/Full(Strict)，否则回源到 80 将无法工作。
@@ -138,7 +138,7 @@ https://sbsub.example.com/sub/<machine>/<TOKEN>
 
 ```bash
 # 首次安装（配合网页生成器，端口即 mtpt；伪装域、密钥、模式全部随机）
-mtpt=20086 bash <(curl -fsSL https://github.com/famintt/sbm/releases/latest/download/install.sh)
+mtpt=20086 bash <(curl -fsSL https://github.com/famintt/Singbox-Manager/releases/latest/download/install.sh)
 
 # 已安装时直接管理
 mtpt=20086 mtp            # 安装/更新（改端口自动重装）

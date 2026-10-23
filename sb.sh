@@ -9,7 +9,7 @@ umask 077
 PROJECT_NAME="Singbox 管理器"
 SCRIPT_VERSION="1.9.0"
 REPO_OWNER="famintt"
-REPO_NAME="sbm"
+REPO_NAME="Singbox-Manager"
 
 INSTALL_BIN="${INSTALL_BIN:-/usr/local/bin/sbm}"
 LIB_DIR="${LIB_DIR:-/usr/local/lib/singbox-manager}"

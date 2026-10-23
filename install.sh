@@ -46,11 +46,11 @@ set -eEuo pipefail
 umask 077
 
 REPO_OWNER="famintt"
-REPO_NAME="sbm"
+REPO_NAME="Singbox-Manager"
 PROJECT_VERSION="v1.9.0"
 PACKAGE_NAME="singbox-manager-v1.9.0.tar.gz"
 # 发布流程：scripts/build-release-bundle.sh 构建可复现 bundle，其 SHA256 与此处一致
-PACKAGE_SHA256="fd93211ee0ede3c4f0889c3e2a7fd966200b4e12e496029aa443309d84265455"
+PACKAGE_SHA256="3f59adf781d05cdad75c5f5dc67a933136477f8683f846b8717611962d8b4469"
 PACKAGE_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${PROJECT_VERSION}/${PACKAGE_NAME}"
 
 INSTALL_BIN="/usr/local/bin/sbm"
