@@ -72,7 +72,7 @@ auto_cert_bundle() {
         return 0
       fi
       print_warn "cert_b64/key_b64 解码失败（无效的 base64 或缺少其一），节点 ${tag} 回退自签证书。"
-      __pair="$(ensure_tls_material "$tag" "www.bing.com")"
+      __pair="$(ensure_tls_material "$tag" "$domain")"
       printf 'self-signed|%s|%s' "${__pair%|*}" "${__pair#*|}"
       return 0
     fi
@@ -86,7 +86,7 @@ auto_cert_bundle() {
   elif [ "${__mode}" != "self" ] && [ "${__mode}" != "self-signed" ]; then
     print_warn "未知证书模式 cert=${__mode}，节点 ${tag} 使用自签证书。"
   fi
-  __pair="$(ensure_tls_material "$tag" "www.bing.com")"
+  __pair="$(ensure_tls_material "$tag" "$domain")"
   printf 'self-signed|%s|%s' "${__pair%|*}" "${__pair#*|}"
 }
 auto_add_vless_reality() {

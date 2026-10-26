@@ -250,7 +250,7 @@ prompt_certificate_bundle() {
     mode="$(prompt_choice "证书模式 (self-signed/custom)" "self-signed")"
     case "$mode" in
     self-signed | self | quick)
-      pair="$(ensure_tls_material "$tag" "www.bing.com")"
+      pair="$(ensure_tls_material "$tag" "$default_domain")"
       printf 'self-signed|%s|%s' "${pair%|*}" "${pair#*|}"
       return 0
       ;;

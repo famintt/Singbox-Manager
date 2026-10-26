@@ -46,11 +46,13 @@ sni_candidates() {
   cat <<'EOF'
 www.bing.com
 www.microsoft.com
-www.amazon.com
-www.salesforce.com
-www.nvidia.com
 www.adobe.com
-www.oracle.com
+deb.debian.org
+pypi.org
+dl-cdn.alpinelinux.org
+static.rust-lang.org
+rubygems.org
+addons.mozilla.org
 EOF
 }
 
