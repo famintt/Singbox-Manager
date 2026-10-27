@@ -966,7 +966,7 @@
   renderCmdList('mtp-cmds', MTP_CMDS);
 
   // SNI 伪装域名候选（下拉选择填入输入框，输入框仍可手输，留空用内置默认值）
-  var SNI_LIST = ['www.bing.com', 'www.microsoft.com', 'www.adobe.com', 'deb.debian.org', 'pypi.org', 'dl-cdn.alpinelinux.org', 'static.rust-lang.org', 'rubygems.org', 'addons.mozilla.org', 'www.apple.com'];
+  var SNI_LIST = ['www.bing.com', 'www.microsoft.com', 'www.adobe.com', 'deb.debian.org', 'pypi.org', 'dl-cdn.alpinelinux.org', 'static.rust-lang.org', 'rubygems.org', 'addons.mozilla.org', 'www.python.org', 'www.fastly.com', 'gateway.icloud.com', 'www.utoronto.ca', 'www.cam.ac.uk', 'www.kyoto-u.ac.jp', 'www.nus.edu.sg', 'www.hku.hk', 'www.cathaypacific.com', 'www.lg.com', 'www.apple.com'];
   document.querySelectorAll('select.sni-pick').forEach(function (sel) {
     SNI_LIST.forEach(function (d) {
       var o = document.createElement('option');

@@ -218,7 +218,7 @@ OOMScoreAdjust=-100
 RestartSteps=10
 RestartSec=3
 MemorySwapMax=0
-ReadWritePaths=${BASE_DIR}
+ReadWritePaths=${BASE_DIR} ${LIB_DIR}
 
 [Install]
 WantedBy=multi-user.target
@@ -244,7 +244,7 @@ ProtectKernelModules=yes
 ProtectKernelTunables=yes
 ProtectProc=invisible
 ProcSubset=pid
-ReadWritePaths=${BASE_DIR}
+ReadWritePaths=${BASE_DIR} ${LIB_DIR}
 EOF
 
   cat >"${SYSTEMD_WATCHDOG_TIMER_FILE}" <<EOF

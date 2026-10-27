@@ -53,6 +53,16 @@ dl-cdn.alpinelinux.org
 static.rust-lang.org
 rubygems.org
 addons.mozilla.org
+www.python.org
+www.fastly.com
+gateway.icloud.com
+www.utoronto.ca
+www.cam.ac.uk
+www.kyoto-u.ac.jp
+www.nus.edu.sg
+www.hku.hk
+www.cathaypacific.com
+www.lg.com
 EOF
 }
 
