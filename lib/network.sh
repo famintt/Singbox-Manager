@@ -193,7 +193,7 @@ probe_tcp_port() {
 tcp_probeable_protocol() {
   local protocol="$1"
   case "${protocol}" in
-  vless-reality | vless-ws-tls | anytls | vless-argo | socks5) return 0 ;;
+  vless-reality | vless-xudp | vless-ws-tls | anytls | vless-argo | socks5) return 0 ;;
   esac
   return 1
 }

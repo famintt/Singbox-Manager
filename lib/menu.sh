@@ -12,6 +12,7 @@ menu_add_node() {
   echo "5. TUIC v5"
   echo "6. Hysteria2"
   echo "7. SOCKS5"
+  echo "8. VLESS + XUDP"
   echo "0. 返回"
   echo
   read -r -p "请选择: " choice || return 0
@@ -23,6 +24,7 @@ menu_add_node() {
   5) add_tuic_v5 ;;
   6) add_hy2 ;;
   7) add_socks5 ;;
+  8) add_vless_xudp ;;
   0) return 0 ;;
   *) print_warn "无效的选择。" ;;
   esac

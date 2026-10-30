@@ -241,6 +241,87 @@ auto_add_anytls() {
   auto_save_node "$tag" "$node_json" "$secret_json"
   print_ok "已写入节点：${name} | 端口: ${port}"
 }
+auto_add_vless_xudp() {
+  local port="$1"
+  local tag name uuid security reality_server tls_server key_output private_key public_key short_id
+  local cert_bundle cert_mode cert_file key_file node_json secret_json
+  tag="$(generate_tag "vless-xudp")"
+  security="${ENV_VX_SECURITY:-reality}"
+  if [ "${security}" = "reality" ]; then
+    if [ -n "${ENV_NAME:-}" ]; then name="${ENV_NAME}-XUDP-Reality"; else name="VLESS-XUDP-Reality"; fi
+    uuid="${ENV_UUID:-$(generate_uuid)}"
+    reality_server="${ENV_VX_SNI:-${DEFAULT_REALITY_SERVER}}"
+    private_key="$(manager_env_or_setting "reality_private" "")"
+    public_key="$(manager_env_or_setting "reality_public" "")"
+    if [ -z "${private_key}" ] || [ -z "${public_key}" ]; then
+      if [ -n "${private_key}" ] || [ -n "${public_key}" ]; then
+        print_warn "reality_private/reality_public 必须成对提供，缺少一项，将重新生成 Reality 密钥对。"
+      fi
+      if ! key_output="$("${SINGBOX_BIN}" generate reality-keypair)"; then
+        print_err "生成 Reality 密钥对失败，跳过 vxpt Reality 节点。"
+        return 1
+      fi
+      private_key="$(printf '%s\n' "$key_output" | sed -n 's/^PrivateKey:[[:space:]]*//p' | head -n 1)"
+      public_key="$(printf '%s\n' "$key_output" | sed -n 's/^PublicKey:[[:space:]]*//p' | head -n 1)"
+    fi
+    if [ -z "$private_key" ] || [ -z "$public_key" ]; then
+      print_err "无法解析 Reality 密钥对，跳过 vxpt Reality 节点。"
+      return 1
+    fi
+    if ! short_id="$(resolve_short_ids "$(env_var "short_ids")")"; then
+      short_id="$(generate_hex 4)"
+    fi
+
+    node_json="$(jq -n \
+      --arg protocol "vless-xudp" \
+      --arg name "$name" \
+      --argjson port "$port" \
+      --arg reality_server "$reality_server" \
+      --arg public_key "$public_key" \
+      --arg short_id "$short_id" '{
+        protocol: $protocol,
+        name: $name,
+        port: $port,
+        reality_server: $reality_server,
+        public_key: $public_key,
+        short_id: $short_id
+      }')"
+    secret_json="$(jq -n \
+      --arg uuid "$uuid" \
+      --arg private_key "$private_key" '{ uuid: $uuid, private_key: $private_key }')"
+  else
+    if [ -n "${ENV_NAME:-}" ]; then name="${ENV_NAME}-VLESS-XUDP"; else name="VLESS-XUDP"; fi
+    uuid="${ENV_UUID:-$(generate_uuid)}"
+    tls_server="${ENV_VX_SNI:-${DEFAULT_TLS_SERVER}}"
+    cert_bundle="$(auto_cert_bundle "$tag" "$tls_server")"
+    cert_mode="${cert_bundle%%|*}"
+    cert_file="${cert_bundle#*|}"
+    cert_file="${cert_file%%|*}"
+    key_file="${cert_bundle##*|}"
+
+    node_json="$(jq -n \
+      --arg protocol "vless-xudp" \
+      --arg name "$name" \
+      --argjson port "$port" \
+      --arg tls_server "$tls_server" \
+      --arg certificate_mode "$cert_mode" \
+      --arg certificate_path "$cert_file" \
+      --arg key_path "$key_file" '{
+        protocol: $protocol,
+        name: $name,
+        port: $port,
+        tls_server: $tls_server,
+        certificate_mode: $certificate_mode,
+        certificate_path: $certificate_path,
+        key_path: $key_path
+      }')"
+    secret_json="$(jq -n --arg uuid "$uuid" '{ uuid: $uuid }')"
+  fi
+
+  auto_save_node "$tag" "$node_json" "$secret_json"
+  print_ok "已写入节点：${name} | 端口: ${port} | 安全: ${security}"
+}
+
 auto_add_vless_argo() {
   local port="$1"
   local tag name uuid preferred_domain cdn_port ws_path argo_mode argo_token endpoint_domain node_json secret_json
@@ -489,6 +570,8 @@ auto_install() {
   fi
   ENV_TU_SNI="$(tls_sni_auto "tu_sni" "${DEFAULT_TLS_SERVER}")"
   ENV_ANY_SNI="$(tls_sni_auto "any_sni" "${DEFAULT_TLS_SERVER}")"
+  ENV_VX_SNI="$(tls_sni_auto "vx_sni" "${DEFAULT_TLS_SERVER}")"
+  ENV_VX_SECURITY="$(env_var "vx_security")"
   ENV_HY_SNI="$(tls_sni_auto "hy_sni" "${DEFAULT_TLS_SERVER}")"
   ENV_WS_HOST="$(env_domain_or_default "ws_host" "${DEFAULT_TLS_SERVER}")"
   ENV_WS_PATH="$(env_var "ws_path")"
@@ -547,6 +630,13 @@ auto_install() {
     anytls)
       if auto_try_port "$port" "AnyTLS"; then
         auto_add_anytls "$port" && added=$((added + 1)) || failed=$((failed + 1))
+      else
+        failed=$((failed + 1))
+      fi
+      ;;
+    vless-xudp)
+      if auto_try_port "$port" "VLESS-XUDP"; then
+        auto_add_vless_xudp "$port" && added=$((added + 1)) || failed=$((failed + 1))
       else
         failed=$((failed + 1))
       fi

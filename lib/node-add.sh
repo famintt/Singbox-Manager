@@ -216,6 +216,99 @@ add_anytls() {
   print_ok "已添加节点：${name}"
 }
 
+add_vless_xudp() {
+  local tag port name uuid security reality_server tls_server key_output private_key public_key short_id
+  local cert_bundle cert_mode cert_file key_file node_json secret_json
+  ensure_singbox_ready
+  tag="$(generate_tag "vless-xudp")"
+  port="$(prompt_port 5444)"
+  security="${vx_security:-reality}"
+  security="$(prompt_with_default "安全方式 (tls/reality)" "$security")"
+  case "${security}" in
+  tls | reality) ;;
+  *) fatal "安全方式无效：${security}（可选 tls/reality）" ;;
+  esac
+
+  if [ "${security}" = "reality" ]; then
+    name="$(prompt_with_default "节点名称" "VLESS-XUDP-Reality")"
+    uuid="$(prompt_optional_value "UUID（留空自动生成）")"
+    uuid="${uuid:-$(generate_uuid)}"
+    reality_server="$(prompt_reality_sni)"
+    key_output="$("${SINGBOX_BIN}" generate reality-keypair)"
+    private_key="$(printf '%s\n' "$key_output" | sed -n 's/^PrivateKey:[[:space:]]*//p' | head -n 1)"
+    public_key="$(printf '%s\n' "$key_output" | sed -n 's/^PublicKey:[[:space:]]*//p' | head -n 1)"
+    [ -n "$private_key" ] || fatal "无法解析 Reality 私钥。"
+    [ -n "$public_key" ] || fatal "无法解析 Reality 公钥。"
+    short_id="$(generate_hex 4)"
+
+    # L11：先收集完输入再拿锁，避免用户停在提示期间长时间占用锁阻塞其他实例
+    acquire_lock
+    node_json="$(jq -n \
+      --arg protocol "vless-xudp" \
+      --arg name "$name" \
+      --argjson port "$port" \
+      --arg reality_server "$reality_server" \
+      --arg public_key "$public_key" \
+      --arg short_id "$short_id" '{
+        protocol: $protocol,
+        name: $name,
+        port: $port,
+        reality_server: $reality_server,
+        public_key: $public_key,
+        short_id: $short_id
+      }')"
+    secret_json="$(jq -n \
+      --arg uuid "$uuid" \
+      --arg private_key "$private_key" '{ uuid: $uuid, private_key: $private_key }')"
+
+    if ! save_node_bundle "$tag" "$node_json" "$secret_json" || ! render_config || ! reload_service; then
+      rollback_new_node "$tag"
+      release_lock
+      fatal "添加节点失败：${name}"
+    fi
+  else
+    name="$(prompt_with_default "节点名称" "VLESS-XUDP")"
+    uuid="$(prompt_optional_value "UUID（留空自动生成）")"
+    uuid="${uuid:-$(generate_uuid)}"
+    tls_server="$(prompt_tls_sni)"
+    cert_bundle="$(prompt_certificate_bundle "$tag" "$tls_server")"
+    cert_mode="${cert_bundle%%|*}"
+    cert_file="${cert_bundle#*|}"
+    cert_file="${cert_file%%|*}"
+    key_file="${cert_bundle##*|}"
+
+    # L11：先收集完输入再拿锁，避免用户停在提示期间长时间占用锁阻塞其他实例
+    acquire_lock
+    node_json="$(jq -n \
+      --arg protocol "vless-xudp" \
+      --arg name "$name" \
+      --argjson port "$port" \
+      --arg tls_server "$tls_server" \
+      --arg certificate_mode "$cert_mode" \
+      --arg certificate_path "$cert_file" \
+      --arg key_path "$key_file" '{
+        protocol: $protocol,
+        name: $name,
+        port: $port,
+        tls_server: $tls_server,
+        certificate_mode: $certificate_mode,
+        certificate_path: $certificate_path,
+        key_path: $key_path
+      }')"
+    secret_json="$(jq -n --arg uuid "$uuid" '{ uuid: $uuid }')"
+
+    if ! save_node_bundle "$tag" "$node_json" "$secret_json" || ! render_config || ! reload_service; then
+      rollback_new_node "$tag" "$cert_file" "$key_file"
+      release_lock
+      fatal "添加节点失败：${name}"
+    fi
+  fi
+
+  sanitize_permissions
+  release_lock
+  print_ok "已添加节点：${name}"
+}
+
 add_vless_argo() {
   local tag port name uuid preferred_domain ws_path argo_mode argo_token endpoint_domain node_json secret_json
   ensure_singbox_ready

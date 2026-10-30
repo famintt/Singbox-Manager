@@ -2,7 +2,7 @@
 
 **在线一键命令生成器：<https://sbm.1733.dpdns.org>**（即本仓库 `interface/worker.js` 的部署，可自行用 Pages/Workers 托管）—— 填协议端口即可生成下面的环境变量一键安装命令。
 
-面向常用 `sing-box` 场景的管理脚本：安装核心、添加节点、生成分享链接、自动保活一体化，支持 VLESS-Reality / VLESS-WS-TLS / AnyTLS / VLESS-Argo / TUIC v5 / Hysteria2 / SOCKS5；并附带独立的 **MTProxy（Go mtg）** 管理脚本。
+面向常用 `sing-box` 场景的管理脚本：安装核心、添加节点、生成分享链接、自动保活一体化，支持 VLESS+Vision+Reality / VLESS+XUDP+Reality / VLESS-WS-TLS / AnyTLS / VLESS-Argo / TUIC v5 / Hysteria2 / SOCKS5；并附带独立的 **MTProxy（Go mtg）** 管理脚本。
 
 ## 快速安装
 
@@ -29,7 +29,7 @@ vlrt=2083 hypt=2082 name='HK' sbm rep      # 已安装时
 
 | 变量 | 说明 | 默认 |
 |---|---|---|
-| `vlrt` `wspt` `tupt` `anypt` `hypt` `socks5pt` | 各协议端口，填了即启用 | 不启用 |
+| `vlrt` `vxpt` `wspt` `tupt` `anypt` `hypt` `socks5pt` | 各协议端口，填了即启用（`vxpt`=VLESS+XUDP+Reality（`vx_security` 默认 reality，可选 tls）） | 不启用 |
 | `argo=vlpt` `argo_pt` | 启用 VLESS-Argo；本地端口 | 8001 |
 | `agn` `agk` | Argo 固定隧道域名 + Token（临时隧道留空） | 临时隧道 |
 | `cdn_host` | CDN 中转连接地址（优选 IP/域名），WS-TLS CDN 使用（Argo 也可回退使用） | `saas.sin.fan` |
@@ -48,7 +48,7 @@ vlrt=2083 hypt=2082 name='HK' sbm rep      # 已安装时
 | `uuid` | VLESS/TUIC 共用 UUID | 自动生成 |
 | `passwd` | AnyTLS/HY2/TUIC 密码 | 自动生成 |
 | `name` | 节点名前缀（生成 `HK-Reality` 等） | 内置默认名 |
-| `vl_sni` `ws_host` `tu_sni` `any_sni` `hy_sni` | 各协议 SNI（ws_host 仅供命令行 `ws_mode=direct` 直连用；界面 WS 已仅 CDN，SNI/Host 用 `ws_cdn_sni`） | `www.apple.com` |
+| `vl_sni` `vx_sni` `ws_host` `tu_sni` `any_sni` `hy_sni` | 各协议 SNI（ws_host 仅供命令行 `ws_mode=direct` 直连用；界面 WS 已仅 CDN，SNI/Host 用 `ws_cdn_sni`；vx_sni 的 Reality 分支默认 `www.bing.com`，TLS 分支默认 `www.apple.com`） | 见说明 |
 | `ws_path` | WS 路径 | 随机 |
 | `up_mbps` `down_mbps` | HY2 带宽 | 200 |
 | `socks5_username` `socks5_password` | SOCKS5 账号 | user / 随机 |
@@ -68,6 +68,18 @@ vlrt=2083 hypt=2082 name='HK' sbm rep      # 已安装时
 | `debug_flag` | 调试日志开关（1=debug） | 0 |
 | `sub_machine` | Worker 中的机器 slug，默认取 `name` 或主机名并转小写 | 自动 |
 | `sub_port` | 临时订阅 HTTP 服务监听端口（仅 `127.0.0.1`，不占公网端口） | `18080` |
+
+## VLESS+XUDP+Reality（主线）
+
+`vxpt=端口` 会创建一个 **VLESS+XUDP+Reality（TCP）** 入站，服务端不依赖 `multiplex`；UDP 由客户端的 XUDP 封装承载。默认安全层为 `vx_security=reality`，也可显式设 `vx_security=tls` 使用自签证书；CLI 别名 `--protocol xudp-reality` 等价于默认主线。分享链接带 `packetEncoding=xudp`（Xray 分享链接的 query 名）；TLS 自签证书同时追加 `allow_insecure=1`（TUIC/v2rayN 风格）和 `pcs=`（Xray 精确证书固定），无指纹时只输出 `allow_insecure=1`。注意 v2rayN 7.25.6 的 VLESS 链接解析器不读 `allow_insecure`，仍需在 GUI 勾选跳过证书验证，或切 Xray 核心使用 `pcs`；Reality 链接不需要证书参数。
+
+客户端手工配置时对应字段：
+
+- Xray：`"packetEncoding": "xudp"`（VLESS outbound）
+- sing-box：`"packet_encoding": "xudp"`（VLESS outbound）
+- Mihomo/Clash.Meta：`packet-encoding: xudp`，并保持 `udp: true`
+
+XUDP 本质是“UDP over TCP”，适合 UDP 被 QoS/封锁时保底；游戏、语音、WebRTC 的延迟通常不如原生 UDP 的 TUIC/Hysteria2。主线之外仍保留原生 Reality/TUIC/HY2 作为低延迟线路。
 
 ## WS-TLS + CDN（CF 证书方案，v1.2.4）
 

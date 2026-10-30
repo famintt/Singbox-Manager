@@ -47,10 +47,10 @@ umask 077
 
 REPO_OWNER="famintt"
 REPO_NAME="Singbox-Manager"
-PROJECT_VERSION="v1.9.2"
-PACKAGE_NAME="singbox-manager-v1.9.2.tar.gz"
+PROJECT_VERSION="v1.9.3"
+PACKAGE_NAME="singbox-manager-v1.9.3.tar.gz"
 # 发布流程：scripts/build-release-bundle.sh 构建可复现 bundle，其 SHA256 与此处一致
-PACKAGE_SHA256="7e394a2300c3a131d646b298fff6b6584ec165727569d53467b6e01e0de86ddb"
+PACKAGE_SHA256="03b7ae36b73ea00bb9921cb77f58015ae109b53a78067cc63db83a4f3105f7e4"
 PACKAGE_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${PROJECT_VERSION}/${PACKAGE_NAME}"
 
 INSTALL_BIN="/usr/local/bin/sbm"
@@ -156,7 +156,7 @@ resolve_action() {
     printf '%s' "${action}"
     return 0
   fi
-  for var in vlrt wspt tupt anypt hypt socks5pt argo; do
+  for var in vlrt vxpt wspt tupt anypt hypt socks5pt argo; do
     if [ -n "${!var:-}" ]; then
       printf 'ins'
       return 0

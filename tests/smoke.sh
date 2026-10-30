@@ -66,6 +66,12 @@ esac
 # shellcheck source=../sb.sh
 source "${ROOT_DIR}/sb.sh"
 
+# --- v1.9.3 主线命名与版本 ---
+assert_eq "VERSION 稳定版 1.9.3" "v1.9.3" "$(tr -d "\r\n" < "${ROOT_DIR}/VERSION")"
+assert_eval_true "UI 使用 VLESS+Vision+Reality 标签" 'grep -q "VLESS+Vision+Reality" "${ROOT_DIR}/interface/index.html"'
+assert_eval_true "UI 使用 VLESS+XUDP+Reality 标签" 'grep -q "VLESS+XUDP+Reality" "${ROOT_DIR}/interface/index.html"'
+assert_eval_true "UI XUDP 安全层默认 Reality" 'grep -q "option value=\"reality\" selected" "${ROOT_DIR}/interface/index.html"'
+
 # --- 模块分组索引（对应 docs/ARCHITECTURE.md 的 lib/*.sh 分层） ---
 # env       : 前置检查/陷阱（隐含：sb.sh 加载即验证）；normalize_input 依赖的变量
 # fmt       : normalize_input / env_var / IP 工具 / IPv6 authority 编码
@@ -112,8 +118,10 @@ assert_eval_false "env_port 非法端口" 'vlrt=abc; env_port vlrt'
 assert_eval_false "env_port 端口越界" 'vlrt=70000; env_port vlrt'
 assert_eval_false "env_port 未设置" 'unset vlrt; env_port vlrt'
 assert_eval_true "auto_has_node_env 有 vlrt" 'vlrt=2083; auto_has_node_env'
+assert_eval_true "auto_has_node_env 有 vxpt" 'vxpt=5444; auto_has_node_env'
 assert_eval_true "auto_has_node_env 有 argo" 'argo=vlpt; auto_has_node_env'
-assert_eval_false "auto_has_node_env 全空" 'unset vlrt wspt tupt anypt hypt socks5pt argo; auto_has_node_env'
+assert_eval_false "auto_has_node_env 全空" 'unset vlrt vxpt wspt tupt anypt hypt socks5pt argo; auto_has_node_env'
+assert_eq "auto_collect_specs 收集 vxpt" "vless-xudp 5444" "$(vxpt=5444 auto_collect_specs)"
 assert_eval_true "auto_argo_requested vlpt" 'argo=vlpt; auto_argo_requested'
 assert_eval_false "auto_argo_requested trpt" 'argo=trpt; auto_argo_requested'
 assert_eval_false "auto_argo_requested 未设置" 'unset argo; auto_argo_requested'
@@ -340,6 +348,44 @@ assert_eval_false "AnyTLS 受信证书链接不含 insecure" 'build_share_link n
 assert_eval_true "AnyTLS 受信证书链接保留 type=tcp" 'build_share_link nanytls-custom | grep -q "type=tcp&headerType=none"'
 assert_eval_true "anytls 自签 ext 不泄漏到全局" 'unset ext; build_share_link nanytls >/dev/null; [ -z "${ext:-}" ]'
 
+# VLESS + XUDP：TLS/TCP inbound（TLS 分支），客户端 XUDP 编码，服务端不需要 flow/multiplex
+json_set_record "${NODES_FILE}" "nxudp" '{"protocol":"vless-xudp","name":"VLESS-XUDP","port":20837,"tls_server":"www.bing.com","certificate_mode":"self-signed"}'
+json_set_record "${SECRETS_FILE}" "nxudp" '{"uuid":"uxudp"}'
+tmpcfg="$(mktemp "${TEST_ROOT}/cfg.XXXXXX")"
+render_inbound_for_tag nxudp >"${tmpcfg}" 2>/dev/null
+assert_eq "VLESS-XUDP inbound type" "vless" "$(jq -r '.type' "${tmpcfg}")"
+assert_eq "VLESS-XUDP inbound TLS" "true" "$(jq -r '.tls.enabled' "${tmpcfg}")"
+assert_eq "VLESS-XUDP inbound SNI" "www.bing.com" "$(jq -r '.tls.server_name' "${tmpcfg}")"
+assert_eval_true "VLESS-XUDP 不使用 flow" 'jq -e ".users[0].flow == null" "${tmpcfg}" >/dev/null'
+assert_eval_true "VLESS-XUDP 不渲染 multiplex" 'jq -e ".multiplex == null" "${tmpcfg}" >/dev/null'
+rm -f "${tmpcfg}"
+assert_eval_true "VLESS-XUDP 链接含 TLS + XUDP" 'build_share_link nxudp | grep -q "security=tls.*packetEncoding=xudp"'
+assert_eval_true "VLESS-XUDP 链接含 type=tcp" 'build_share_link nxudp | grep -q "type=tcp"'
+assert_eval_false "VLESS-XUDP 链接不带 Vision flow" 'build_share_link nxudp | grep -q "flow="'
+assert_eval_true "VLESS-XUDP 自签无证书回退 allow_insecure=1" 'build_share_link nxudp | grep -q "allow_insecure=1"'
+xudp_pair="$(ensure_tls_material tag_xudp www.bing.com)"
+json_set_field "${NODES_FILE}" "nxudp" "certificate_path" "${xudp_pair%|*}"
+assert_eval_true "VLESS-XUDP 自签有证书输出 allow_insecure=1" 'build_share_link nxudp | grep -q "allow_insecure=1"'
+assert_eval_true "VLESS-XUDP 自签有证书输出 pcs" 'build_share_link nxudp | grep -q "pcs=[0-9a-f]\{64\}"'
+assert_eval_false "VLESS-XUDP 不再使用旧版 allowInsecure" 'build_share_link nxudp | grep -q "allowInsecure=1"'
+assert_eval_true "VLESS-XUDP pcs 在 fragment 前" 'build_share_link nxudp | grep -q "&pcs=[0-9a-f]\{64\}#VLESS-XUDP$"'
+
+# VLESS + Reality + XUDP：同一 vless-xudp 协议的 Reality 安全层
+json_set_record "${NODES_FILE}" "nxudp-reality" '{"protocol":"vless-xudp","name":"XUDP-Reality","port":20840,"reality_server":"www.apple.com","public_key":"pbk-test","short_id":"abcd1234"}'
+json_set_record "${SECRETS_FILE}" "nxudp-reality" '{"uuid":"uxudp-reality","private_key":"priv-test"}'
+tmpcfg="$(mktemp "${TEST_ROOT}/cfg.XXXXXX")"
+render_inbound_for_tag nxudp-reality >"${tmpcfg}" 2>/dev/null
+assert_eq "XUDP-Reality inbound type" "vless" "$(jq -r '.type' "${tmpcfg}")"
+assert_eq "XUDP-Reality 启用 Reality" "true" "$(jq -r '.tls.reality.enabled' "${tmpcfg}")"
+assert_eq "XUDP-Reality handshake" "www.apple.com:443" "$(jq -r '.tls.reality.handshake.server + ":" + (.tls.reality.handshake.server_port|tostring)' "${tmpcfg}")"
+assert_eq "XUDP-Reality 无证书路径" "null" "$(jq -r '.tls.certificate_path // null' "${tmpcfg}")"
+assert_eval_true "XUDP-Reality 不使用 flow" 'jq -e ".users[0].flow == null" "${tmpcfg}" >/dev/null'
+assert_eval_true "XUDP-Reality 不渲染 multiplex" 'jq -e ".multiplex == null" "${tmpcfg}" >/dev/null'
+rm -f "${tmpcfg}"
+assert_eval_true "XUDP-Reality 链接为 reality" 'build_share_link nxudp-reality | grep -q "security=reality.*pbk=pbk-test.*sid=abcd1234.*packetEncoding=xudp"'
+assert_eval_false "XUDP-Reality 链接不带证书参数" 'build_share_link nxudp-reality | grep -qE "(pcs=|allow_insecure=|allowInsecure=)"'
+assert_eval_true "XUDP-Reality 链接 fragment 正确" 'build_share_link nxudp-reality | grep -q "#XUDP-Reality$"'
+
 # --- fp 局部变量隔离（Bug #5）：hy2 自签时 fp 不得泄漏到全局 ---
 assert_eval_true "hy2 fp 不泄漏到全局" 'unset fp; build_share_link n2b >/dev/null; [ -z "${fp:-}" ]'
 
@@ -491,6 +537,11 @@ assert_eval_true "ws_mode=cdn 与 cdn_port 写入节点记录" 'jq -e "to_entrie
 assert_eval_true "cdn_sni 未显式设置时默认同连接地址" 'jq -e "to_entries[] | select(.value.port == 20837 and .value.cdn_sni == \"cdn.example.com\")" "${NODES_FILE}" >/dev/null'
 # v0.3.0：ws_cdn 专用前缀优先于共享与旧名
 ENV_NAME=Sm2 ENV_WS_CDN_VLESS_CF_HOST=per-proto.example.com ENV_WS_CDN_VLESS_CF_PT=2096 ENV_WS_CDN_SNI=shared-sni.example.com ENV_WS_MODE=cdn auto_add_vless_ws_tls 20838
+# --- VLESS+XUDP 自动安装记录（防止 jq 行继续符/参数错误回归） ---
+ENV_NAME=Xu ENV_UUID=44444444-5555-6666-7777-888888888888 ENV_VX_SNI=www.bing.com ENV_VX_SECURITY=tls auto_add_vless_xudp 20839
+assert_eq "auto_add_vless_xudp 节点协议" "vless-xudp" "$(jq -r 'to_entries[] | select(.value.port == 20839) | .value.protocol' "${NODES_FILE}")"
+assert_eq "auto_add_vless_xudp 节点 SNI" "www.bing.com" "$(jq -r 'to_entries[] | select(.value.port == 20839) | .value.tls_server' "${NODES_FILE}")"
+assert_eq "auto_add_vless_xudp secret UUID" "44444444-5555-6666-7777-888888888888" "$(jq -r 'to_entries[] | select(.value.uuid == "44444444-5555-6666-7777-888888888888") | .value.uuid' "${SECRETS_FILE}")"
 assert_eval_true "ws_cdn_vless_* 覆盖共享/旧名值" 'jq -e "to_entries[] | select(.value.port == 20838 and .value.preferred_domain == \"per-proto.example.com\" and .value.cdn_port == 2096 and .value.cdn_sni == \"shared-sni.example.com\")" "${NODES_FILE}" >/dev/null'
 
 # --- v0.3.3：Argo 独立优选域名/端口（argo_cdn_host/argo_cdn_port 独立于 WS-CDN） ---
@@ -643,6 +694,7 @@ assert_eval_false "probe_tcp_port 未监听端口失败" 'probe_tcp_port 127.0.0
 
 # P2：TCP 可探活协议分类（hy2/tuic 纯 UDP 排除，避免 watchdog 误判假死）
 assert_eval_true "P2 tcp_probeable_protocol reality" 'tcp_probeable_protocol vless-reality'
+assert_eval_true "P2 tcp_probeable_protocol xudp" 'tcp_probeable_protocol vless-xudp'
 assert_eval_true "P2 tcp_probeable_protocol argo" 'tcp_probeable_protocol vless-argo'
 assert_eval_false "P2 tcp_probeable_protocol hy2" 'tcp_probeable_protocol hy2'
 assert_eval_false "P2 tcp_probeable_protocol tuic" 'tcp_probeable_protocol tuic'
@@ -903,6 +955,15 @@ assert_eval_true "mtp_run_args 空模式回退 v4" 'mtp_run_args 20086 eeabcd | 
 # 生成的 tg 链接可解码回原文：0xee + secret(16字节) + domain ascii
 assert_eval_true "mtp_tg_secret 可解码回原文" 's="$(mtp_tg_secret "cafebabecafebabecafebabecafebabe" "www.apple.com")"; p="$(printf %s "$s" | sed "s/-/+/g;s/_/\//g")"; while [ $(( ${#p} % 4 )) -ne 0 ]; do p="$p="; done; h="$(printf %s "$p" | base64 -d 2>/dev/null | od -A n -t x1 | tr -d " \n")"; [[ "$h" == "eecafebabecafebabecafebabecafebabe7777772e6170706c652e636f6d" ]]'
 
+# --- v1.9.3：XUDP 默认安全层为 Reality ---
+unset ENV_VX_SECURITY
+ENV_NAME=Td ENV_UUID=99999999-8888-7777-6666-555555555555 ENV_VX_SNI=www.apple.com auto_add_vless_xudp 20841 >/dev/null
+assert_eq "默认 XUDP 节点协议" "vless-xudp" "$(jq -r 'to_entries[] | select(.value.port == 20841) | .value.protocol' "${NODES_FILE}")"
+assert_eq "默认 XUDP 使用 Reality SNI" "www.apple.com" "$(jq -r 'to_entries[] | select(.value.port == 20841) | .value.reality_server' "${NODES_FILE}")"
+assert_eval_true "默认 XUDP 生成 Reality 公钥" 'jq -e "to_entries[] | select(.value.port == 20841) | .value.public_key | length > 0" "${NODES_FILE}" >/dev/null'
+assert_eval_true "默认 XUDP 生成 Reality 私钥" 'jq -e "to_entries[] | select(.value.private_key != null and (.value.private_key | length) > 0)" "${SECRETS_FILE}" >/dev/null'
+
+delete_all_nodes >/dev/null 2>&1 || true
 rm -rf "${TEST_ROOT}"
 
 echo

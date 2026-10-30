@@ -20,7 +20,7 @@ env_port() {
 }
 auto_has_node_env() {
   local v
-  for v in vlrt wspt tupt anypt hypt socks5pt argo; do
+  for v in vlrt vxpt wspt tupt anypt hypt socks5pt argo; do
     if [ -n "$(env_var "$v")" ]; then
       return 0
     fi
@@ -29,7 +29,7 @@ auto_has_node_env() {
 }
 auto_collect_specs() {
   local entry var proto raw port
-  for entry in vlrt:vless-reality wspt:vless-ws-tls tupt:tuic-v5 anypt:anytls hypt:hy2 socks5pt:socks5; do
+  for entry in vlrt:vless-reality vxpt:vless-xudp wspt:vless-ws-tls tupt:tuic-v5 anypt:anytls hypt:hy2 socks5pt:socks5; do
     var="${entry%%:*}"
     proto="${entry##*:}"
     raw="$(env_var "$var")"

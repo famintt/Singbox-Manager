@@ -110,6 +110,41 @@ EOF
     # 指纹参数必须作为 query 输出在 # 之前；fragment 只输出一次，名称仅编码一遍
     printf '#%s' "$(url_encode "$name")"
     ;;
+  vless-xudp)
+    # VLESS + XUDP：安全层支持 TLS 或 Reality。packetEncoding 是 Xray 分享链接
+    # 的 query 名（Mihomo 解析为 xudp；sing-box 手工配置对应 packet_encoding）。
+    if [ -n "$reality_server" ]; then
+      {
+        read -r reality_server
+        read -r public_key
+        read -r short_id
+        read -r name
+      } <<EOF
+$(url_encode_many "${reality_server}" "${public_key}" "${short_id}" "${name}")
+EOF
+      printf 'vless://%s@%s:%s?encryption=none&security=reality&sni=%s&fp=chrome&pbk=%s&sid=%s&type=tcp&packetEncoding=xudp#%s' \
+        "$uuid" "$host" "$port" "$reality_server" "$public_key" "$short_id" "$name"
+    else
+      # 自签/证书不覆盖 SNI 时同时输出 allow_insecure=1（TUIC/v2rayN 风格）
+      # 和 pcs（Xray pinnedPeerCertSha256）。v2rayN 7.25.6 的 VLESS 解析器只认
+      # pcs，不认 allow_insecure，因此仍可能要求在 GUI 里勾选跳过证书验证。
+      if cert_needs_insecure "$cert_mode" "$certificate_path" "${tls_server}"; then
+        fp="$(cert_fingerprint "${certificate_path}" 2>/dev/null || true)"
+        if [ -n "${fp}" ]; then
+          ext="allow_insecure=1&pcs=${fp}"
+        else
+          ext="allow_insecure=1"
+        fi
+      else
+        ext=""
+      fi
+      tls_server="$(url_encode "${tls_server}")"
+      printf 'vless://%s@%s:%s?encryption=none&security=tls&sni=%s&fp=chrome&type=tcp&packetEncoding=xudp' \
+        "$uuid" "$host" "$port" "$tls_server"
+      [ -n "${ext}" ] && printf '&%s' "${ext}"
+      printf '#%s' "$(url_encode "${name}")"
+    fi
+    ;;
   anytls)
     # 批量编码 password + name（一次 jq 子进程，原逐字段 2 fork）
     {

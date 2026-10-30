@@ -414,6 +414,66 @@ render_inbound_for_tag() {
           transport: { type: "ws", path: $ws_path, max_early_data: 2048, early_data_header_name: "Sec-WebSocket-Protocol" }
         }'
     ;;
+  vless-xudp)
+    # VLESS + XUDP：安全层支持 TLS 或 Reality。XUDP 是 VLESS 的 UDP 封装能力，
+    # 由客户端 packet_encoding=xudp 启用，服务端不需要 multiplex。
+    # 不加 flow：优先保证 XUDP 的客户端兼容性。
+    if [ -n "$reality_server" ] && [ -n "$private_key" ]; then
+      jq -n \
+        --arg tag "$tag" \
+        --arg name "$name" \
+        --arg uuid "$uuid" \
+        --arg server "$reality_server" \
+        --arg private_key "$private_key" \
+        --arg short_id "$short_id" \
+        --argjson port "$port" \
+        --argjson tfo "${__tfo}" \
+        --arg tka_iv "${__tka_iv}" '{
+            type: "vless",
+            tag: $tag,
+            listen: "::",
+            listen_port: $port,
+            tcp_fast_open: $tfo,
+            tcp_keep_alive: $tka_iv,
+            users: [{ name: $name, uuid: $uuid }],
+            tls: {
+              enabled: true,
+              server_name: $server,
+              reality: {
+                enabled: true,
+                handshake: { server: $server, server_port: 443 },
+                private_key: $private_key,
+                short_id: ($short_id | split(",") | map(select(. != "")))
+              }
+            }
+          }'
+    else
+      jq -n \
+        --arg tag "$tag" \
+        --arg name "$name" \
+        --arg uuid "$uuid" \
+        --arg cert_file "$cert_file" \
+        --arg key_file "$key_file" \
+        --arg server "$tls_server" \
+        --argjson port "$port" \
+        --argjson tfo "${__tfo}" \
+        --arg tka_iv "${__tka_iv}" '{
+            type: "vless",
+            tag: $tag,
+            listen: "::",
+            listen_port: $port,
+            tcp_fast_open: $tfo,
+            tcp_keep_alive: $tka_iv,
+            users: [{ name: $name, uuid: $uuid }],
+            tls: {
+              enabled: true,
+              server_name: $server,
+              certificate_path: $cert_file,
+              key_path: $key_file
+            }
+          }'
+    fi
+    ;;
   anytls)
     jq -n \
       --arg tag "$tag" \

@@ -19,7 +19,7 @@ set -eEuo pipefail
 #   mtp_ip_mode   监听模式 v4 / v6 / dual（可选，默认 v4）
 ###############################################################################
 
-SCRIPT_VERSION="1.9.0"
+SCRIPT_VERSION="1.9.3"
 
 # bash>=4.0 前置守卫：MTP_SHA256 关联数组与 ${!var} 间接引用在 bash 3.x 不可用，
 # 尽早失败并给出可读报错（sb.sh 侧同款要求，见 require_bash4）。

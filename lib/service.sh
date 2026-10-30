@@ -511,7 +511,7 @@ verify_data_plane_ready() {
   while IFS=$'\t' read -r tag protocol port _argo; do
     [ -n "${tag}" ] || continue
     case "${protocol}" in
-    vless-reality | vless-ws-tls | anytls | vless-argo | socks5)
+    vless-reality | vless-xudp | vless-ws-tls | anytls | vless-argo | socks5)
       ports="${ports} ${port}"
       ;;
     esac
