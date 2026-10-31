@@ -29,7 +29,7 @@ vlrt=2083 hypt=2082 name='HK' sbm rep      # 已安装时
 
 | 变量 | 说明 | 默认 |
 |---|---|---|
-| `vlrt` `vxpt` `wspt` `tupt` `anypt` `hypt` `socks5pt` | 各协议端口，填了即启用（`vxpt`=VLESS+XUDP+Reality（`vx_security` 默认 reality，可选 tls）） | 不启用 |
+| `vlrt` `vxpt` `wspt` `tupt` `anypt` `hypt` `socks5pt` | 各协议端口，填了即启用（`vxpt`=VLESS+XUDP+Reality） | 不启用 |
 | `argo=vlpt` `argo_pt` | 启用 VLESS-Argo；本地端口 | 8001 |
 | `agn` `agk` | Argo 固定隧道域名 + Token（临时隧道留空） | 临时隧道 |
 | `cdn_host` | CDN 中转连接地址（优选 IP/域名），WS-TLS CDN 使用（Argo 也可回退使用） | `saas.sin.fan` |
@@ -48,7 +48,7 @@ vlrt=2083 hypt=2082 name='HK' sbm rep      # 已安装时
 | `uuid` | VLESS/TUIC 共用 UUID | 自动生成 |
 | `passwd` | AnyTLS/HY2/TUIC 密码 | 自动生成 |
 | `name` | 节点名前缀（生成 `HK-Reality` 等） | 内置默认名 |
-| `vl_sni` `vx_sni` `ws_host` `tu_sni` `any_sni` `hy_sni` | 各协议 SNI（ws_host 仅供命令行 `ws_mode=direct` 直连用；界面 WS 已仅 CDN，SNI/Host 用 `ws_cdn_sni`；vx_sni 的 Reality 分支默认 `www.bing.com`，TLS 分支默认 `www.apple.com`） | 见说明 |
+| `vl_sni` `vx_sni` `ws_host` `tu_sni` `any_sni` `hy_sni` | 各协议 SNI（ws_host 仅供命令行 `ws_mode=direct` 直连用；界面 WS 已仅 CDN，SNI/Host 用 `ws_cdn_sni`；vx_sni 默认 `www.bing.com`） | 见说明 |
 | `ws_path` | WS 路径 | 随机 |
 | `up_mbps` `down_mbps` | HY2 带宽 | 200 |
 | `socks5_username` `socks5_password` | SOCKS5 账号 | user / 随机 |
@@ -71,7 +71,7 @@ vlrt=2083 hypt=2082 name='HK' sbm rep      # 已安装时
 
 ## VLESS+XUDP+Reality（主线）
 
-`vxpt=端口` 会创建一个 **VLESS+XUDP+Reality（TCP）** 入站，服务端不依赖 `multiplex`；UDP 由客户端的 XUDP 封装承载。默认安全层为 `vx_security=reality`，也可显式设 `vx_security=tls` 使用自签证书；CLI 别名 `--protocol xudp-reality` 等价于默认主线。分享链接带 `packetEncoding=xudp`（Xray 分享链接的 query 名）；TLS 自签证书同时追加 `allow_insecure=1`（TUIC/v2rayN 风格）和 `pcs=`（Xray 精确证书固定），无指纹时只输出 `allow_insecure=1`。注意 v2rayN 7.25.6 的 VLESS 链接解析器不读 `allow_insecure`，仍需在 GUI 勾选跳过证书验证，或切 Xray 核心使用 `pcs`；Reality 链接不需要证书参数。
+`vxpt=端口` 会创建一个 **VLESS+XUDP+Reality（TCP）** 入站，服务端不依赖 `multiplex`；UDP 由客户端的 XUDP 封装承载。XUDP 固定使用 Reality，不再提供 TLS 安全层选项；CLI 别名 `--protocol xudp-reality` 等价于默认主线。分享链接带 `packetEncoding=xudp`（Xray 分享链接的 query 名）。Reality 链接不需要证书参数。
 
 客户端手工配置时对应字段：
 

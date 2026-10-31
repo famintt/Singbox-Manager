@@ -222,12 +222,8 @@ add_vless_xudp() {
   ensure_singbox_ready
   tag="$(generate_tag "vless-xudp")"
   port="$(prompt_port 5444)"
-  security="${vx_security:-reality}"
-  security="$(prompt_with_default "安全方式 (tls/reality)" "$security")"
-  case "${security}" in
-  tls | reality) ;;
-  *) fatal "安全方式无效：${security}（可选 tls/reality）" ;;
-  esac
+  # XUDP 固定使用 Reality；TLS 分支仅保留用于兼容旧节点，不再提供用户选项。
+  security="reality"
 
   if [ "${security}" = "reality" ]; then
     name="$(prompt_with_default "节点名称" "VLESS-XUDP-Reality")"

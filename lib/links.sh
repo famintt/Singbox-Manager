@@ -111,7 +111,7 @@ EOF
     printf '#%s' "$(url_encode "$name")"
     ;;
   vless-xudp)
-    # VLESS + XUDP：安全层支持 TLS 或 Reality。packetEncoding 是 Xray 分享链接
+    # VLESS + XUDP：新节点固定 Reality；TLS 分支仅用于兼容旧节点。packetEncoding 是 Xray 分享链接
     # 的 query 名（Mihomo 解析为 xudp；sing-box 手工配置对应 packet_encoding）。
     if [ -n "$reality_server" ]; then
       {

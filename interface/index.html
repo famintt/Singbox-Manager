@@ -210,7 +210,6 @@
         <div class="pgrid">
           <div class="pitem"><label>VLESS+Vision+Reality <span class="pill">vlrt</span></label><input type="text" class="port-input" id="vlrt" placeholder="如 2083，或点 🎲 随机" inputmode="numeric"></div>
           <div class="pitem"><label>VLESS+XUDP+Reality <span class="pill">vxpt</span></label><input type="text" class="port-input" id="vxpt" placeholder="如 5444，或点 🎲 随机" inputmode="numeric"></div>
-          <div class="pitem"><label>XUDP 安全层 <span class="pill">vx_security</span></label><select id="vx_security"><option value="reality" selected>Reality（主线）</option><option value="tls">TLS（自签证书，测试）</option></select></div>
           <div class="pitem"><label>AnyTLS <span class="pill">anypt</span></label><input type="text" class="port-input" id="anypt" placeholder="如 5443，或点 🎲 随机" inputmode="numeric"></div>
           <div class="pitem"><label>TUIC v5 <span class="pill">tupt</span></label><input type="text" class="port-input" id="tupt" placeholder="如 10443，或点 🎲 随机" inputmode="numeric"></div>
           <div class="pitem"><label>Hysteria2 <span class="pill">hypt</span></label><input type="text" class="port-input" id="hypt" placeholder="如 11443，或点 🎲 随机" inputmode="numeric"></div>
@@ -253,7 +252,7 @@
         <div class="row">
           <label>VLESS+XUDP+Reality SNI <span class="pill">vx_sni</span></label>
           <div class="ctl">
-            <input type="text" id="vx_sni" class="has-pick" placeholder="留空默认 www.bing.com（Reality）/ www.apple.com（TLS）；输入 auto 自动检测">
+            <input type="text" id="vx_sni" class="has-pick" placeholder="留空默认 www.bing.com（Reality）；输入 auto 自动检测">
             <select class="pick sni-pick" data-target="vx_sni"><option value="">选择…</option></select>
           </div>
         </div>
@@ -815,10 +814,6 @@
       }
     }
     strEnv('vx_sni', 'vx_sni', envs);
-    if (val('vxpt')) {
-      // 默认主线是 Reality；显式选择 TLS 时必须下发，否则服务端默认 Reality 会覆盖用户选择。
-      envs.push(['vx_security', qv(val('vx_security') || 'reality')]);
-    }
     strEnv('tu_sni', 'tu_sni', envs);
     strEnv('any_sni', 'any_sni', envs);
     strEnv('hy_sni', 'hy_sni', envs);

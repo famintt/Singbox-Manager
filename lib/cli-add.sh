@@ -7,7 +7,7 @@ cli_add_usage() {
 
 协议:
   reality       VLESS+Vision+Reality (TCP)
-  xudp          VLESS+XUDP (默认 Reality；--security tls 可切 TLS)
+  xudp          VLESS+Reality+XUDP (TCP)
   xudp-reality  VLESS+Reality+XUDP（xudp 别名）
   anytls        AnyTLS (TCP)
   tuic          TUIC v5 (UDP)
@@ -20,7 +20,6 @@ cli_add_usage() {
   --port PORT          监听端口；省略随机选择
   --name NAME          节点名称
   --sni DOMAIN         SNI；Reality 可用 auto 自动检测
-  --security MODE      XUDP 安全层：tls（默认）或 reality
   --uuid UUID          指定 UUID
   --password VALUE     指定密码
   --socks5-username U  SOCKS5 用户名
@@ -99,14 +98,13 @@ cli_sni() {
 
 cli_add() {
   require_root
-  local protocol="" port="" name="" sni="" uuid="" password="" security="" s5user="" s5pass="" server_ip="" direct_host="" argo_host="" argo_port=""
+  local protocol="" port="" name="" sni="" uuid="" password="" s5user="" s5pass="" server_ip="" direct_host="" argo_host="" argo_port=""
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --protocol) protocol="${2:-}"; shift 2 ;;
       --port) port="${2:-}"; shift 2 ;;
       --name) name="${2:-}"; shift 2 ;;
       --sni) sni="${2:-}"; shift 2 ;;
-      --security) security="${2:-}"; shift 2 ;;
       --uuid) uuid="${2:-}"; shift 2 ;;
       --password) password="${2:-}"; shift 2 ;;
       --socks5-username) s5user="${2:-}"; shift 2 ;;
@@ -120,13 +118,6 @@ cli_add() {
     esac
   done
   [ -n "${protocol}" ] || { print_err "缺少 --protocol"; cli_add_usage; return 2; }
-  case "${protocol,,}" in
-    xudp-reality | vless-xudp-reality) security="${security:-reality}" ;;
-  esac
-  case "${security,,}" in
-    "" | tls | reality) ;;
-    *) print_err "不支持的 XUDP 安全层：${security}（可选 tls/reality）"; return 2 ;;
-  esac
   [[ "${port}" =~ ^[0-9]+$ ]] || port="$(random_free_port)"
   # 端口范围校验
   if [ "${port}" -lt 1 ] || [ "${port}" -gt 65535 ]; then
@@ -149,7 +140,6 @@ cli_add() {
     xudp|vless-xudp|xudp-reality|vless-xudp-reality)
       export vxpt="${port}"
       [ -n "${sni}" ] && export vx_sni="${sni}"
-      [ -n "${security}" ] && export vx_security="${security,,}"
       ;;
     anytls)
       export anypt="${port}"

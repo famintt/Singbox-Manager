@@ -415,7 +415,7 @@ render_inbound_for_tag() {
         }'
     ;;
   vless-xudp)
-    # VLESS + XUDP：安全层支持 TLS 或 Reality。XUDP 是 VLESS 的 UDP 封装能力，
+    # VLESS + XUDP：新节点固定 Reality；TLS 分支仅用于兼容旧节点。XUDP 是 VLESS 的 UDP 封装能力，
     # 由客户端 packet_encoding=xudp 启用，服务端不需要 multiplex。
     # 不加 flow：优先保证 XUDP 的客户端兼容性。
     if [ -n "$reality_server" ] && [ -n "$private_key" ]; then

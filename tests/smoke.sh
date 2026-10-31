@@ -66,11 +66,11 @@ esac
 # shellcheck source=../sb.sh
 source "${ROOT_DIR}/sb.sh"
 
-# --- v1.9.3 主线命名与版本 ---
-assert_eq "VERSION 稳定版 1.9.3" "v1.9.3" "$(tr -d "\r\n" < "${ROOT_DIR}/VERSION")"
+# --- v1.9.4 主线命名与版本 ---
+assert_eq "VERSION 稳定版 1.9.4" "v1.9.4" "$(tr -d "\r\n" < "${ROOT_DIR}/VERSION")"
 assert_eval_true "UI 使用 VLESS+Vision+Reality 标签" 'grep -q "VLESS+Vision+Reality" "${ROOT_DIR}/interface/index.html"'
 assert_eval_true "UI 使用 VLESS+XUDP+Reality 标签" 'grep -q "VLESS+XUDP+Reality" "${ROOT_DIR}/interface/index.html"'
-assert_eval_true "UI XUDP 安全层默认 Reality" 'grep -q "option value=\"reality\" selected" "${ROOT_DIR}/interface/index.html"'
+assert_eval_false "UI 不再暴露 XUDP 安全层选项" 'grep -q "vx_security" "${ROOT_DIR}/interface/index.html"'
 
 # --- 模块分组索引（对应 docs/ARCHITECTURE.md 的 lib/*.sh 分层） ---
 # env       : 前置检查/陷阱（隐含：sb.sh 加载即验证）；normalize_input 依赖的变量
@@ -538,9 +538,23 @@ assert_eval_true "cdn_sni 未显式设置时默认同连接地址" 'jq -e "to_en
 # v0.3.0：ws_cdn 专用前缀优先于共享与旧名
 ENV_NAME=Sm2 ENV_WS_CDN_VLESS_CF_HOST=per-proto.example.com ENV_WS_CDN_VLESS_CF_PT=2096 ENV_WS_CDN_SNI=shared-sni.example.com ENV_WS_MODE=cdn auto_add_vless_ws_tls 20838
 # --- VLESS+XUDP 自动安装记录（防止 jq 行继续符/参数错误回归） ---
-ENV_NAME=Xu ENV_UUID=44444444-5555-6666-7777-888888888888 ENV_VX_SNI=www.bing.com ENV_VX_SECURITY=tls auto_add_vless_xudp 20839
+# XUDP 固定 Reality，需要 sing-box 生成密钥对；此处在通用 stub 初始化前先提供最小 stub。
+XUDP_STUB_BIN="${TEST_ROOT}/xudp-bin"
+mkdir -p "${XUDP_STUB_BIN}"
+cat >"${XUDP_STUB_BIN}/sing-box" <<'EOF'
+#!/usr/bin/env bash
+if [ "${1:-}" = "generate" ] && [ "${2:-}" = "reality-keypair" ]; then
+  printf 'PrivateKey: %s\n' "$(openssl rand -base64 32 | tr -d '\n')"
+  printf 'PublicKey: %s\n' "$(openssl rand -base64 32 | tr -d '\n')"
+  exit 0
+fi
+exit 0
+EOF
+chmod 0755 "${XUDP_STUB_BIN}/sing-box"
+export SINGBOX_BIN="${XUDP_STUB_BIN}/sing-box"
+ENV_NAME=Xu ENV_UUID=44444444-5555-6666-7777-888888888888 ENV_VX_SNI=www.bing.com auto_add_vless_xudp 20839
 assert_eq "auto_add_vless_xudp 节点协议" "vless-xudp" "$(jq -r 'to_entries[] | select(.value.port == 20839) | .value.protocol' "${NODES_FILE}")"
-assert_eq "auto_add_vless_xudp 节点 SNI" "www.bing.com" "$(jq -r 'to_entries[] | select(.value.port == 20839) | .value.tls_server' "${NODES_FILE}")"
+assert_eq "auto_add_vless_xudp 节点 SNI" "www.bing.com" "$(jq -r 'to_entries[] | select(.value.port == 20839) | .value.reality_server' "${NODES_FILE}")"
 assert_eq "auto_add_vless_xudp secret UUID" "44444444-5555-6666-7777-888888888888" "$(jq -r 'to_entries[] | select(.value.uuid == "44444444-5555-6666-7777-888888888888") | .value.uuid' "${SECRETS_FILE}")"
 assert_eval_true "ws_cdn_vless_* 覆盖共享/旧名值" 'jq -e "to_entries[] | select(.value.port == 20838 and .value.preferred_domain == \"per-proto.example.com\" and .value.cdn_port == 2096 and .value.cdn_sni == \"shared-sni.example.com\")" "${NODES_FILE}" >/dev/null'
 
@@ -955,8 +969,7 @@ assert_eval_true "mtp_run_args 空模式回退 v4" 'mtp_run_args 20086 eeabcd | 
 # 生成的 tg 链接可解码回原文：0xee + secret(16字节) + domain ascii
 assert_eval_true "mtp_tg_secret 可解码回原文" 's="$(mtp_tg_secret "cafebabecafebabecafebabecafebabe" "www.apple.com")"; p="$(printf %s "$s" | sed "s/-/+/g;s/_/\//g")"; while [ $(( ${#p} % 4 )) -ne 0 ]; do p="$p="; done; h="$(printf %s "$p" | base64 -d 2>/dev/null | od -A n -t x1 | tr -d " \n")"; [[ "$h" == "eecafebabecafebabecafebabecafebabe7777772e6170706c652e636f6d" ]]'
 
-# --- v1.9.3：XUDP 默认安全层为 Reality ---
-unset ENV_VX_SECURITY
+# --- v1.9.4：XUDP 固定为 Reality ---
 ENV_NAME=Td ENV_UUID=99999999-8888-7777-6666-555555555555 ENV_VX_SNI=www.apple.com auto_add_vless_xudp 20841 >/dev/null
 assert_eq "默认 XUDP 节点协议" "vless-xudp" "$(jq -r 'to_entries[] | select(.value.port == 20841) | .value.protocol' "${NODES_FILE}")"
 assert_eq "默认 XUDP 使用 Reality SNI" "www.apple.com" "$(jq -r 'to_entries[] | select(.value.port == 20841) | .value.reality_server' "${NODES_FILE}")"

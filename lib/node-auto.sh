@@ -246,7 +246,7 @@ auto_add_vless_xudp() {
   local tag name uuid security reality_server tls_server key_output private_key public_key short_id
   local cert_bundle cert_mode cert_file key_file node_json secret_json
   tag="$(generate_tag "vless-xudp")"
-  security="${ENV_VX_SECURITY:-reality}"
+  security="reality"
   if [ "${security}" = "reality" ]; then
     if [ -n "${ENV_NAME:-}" ]; then name="${ENV_NAME}-XUDP-Reality"; else name="VLESS-XUDP-Reality"; fi
     uuid="${ENV_UUID:-$(generate_uuid)}"
@@ -570,8 +570,7 @@ auto_install() {
   fi
   ENV_TU_SNI="$(tls_sni_auto "tu_sni" "${DEFAULT_TLS_SERVER}")"
   ENV_ANY_SNI="$(tls_sni_auto "any_sni" "${DEFAULT_TLS_SERVER}")"
-  ENV_VX_SNI="$(tls_sni_auto "vx_sni" "${DEFAULT_TLS_SERVER}")"
-  ENV_VX_SECURITY="$(env_var "vx_security")"
+  ENV_VX_SNI="$(tls_sni_auto "vx_sni" "${DEFAULT_REALITY_SERVER}")"
   ENV_HY_SNI="$(tls_sni_auto "hy_sni" "${DEFAULT_TLS_SERVER}")"
   ENV_WS_HOST="$(env_domain_or_default "ws_host" "${DEFAULT_TLS_SERVER}")"
   ENV_WS_PATH="$(env_var "ws_path")"
