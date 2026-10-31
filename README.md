@@ -81,11 +81,12 @@ vlrt=2083 hypt=2082 name='HK' sbm rep      # 已安装时
 
 XUDP 本质是“UDP over TCP”，适合 UDP 被 QoS/封锁时保底；游戏、语音、WebRTC 的延迟通常不如原生 UDP 的 TUIC/Hysteria2。主线之外仍保留原生 Reality/TUIC/HY2 作为低延迟线路。
 
-## WS-TLS + CDN（CF 证书方案，v1.2.4）
+## WS-TLS + CDN（CF 证书方案）
 
-v1.2.4 起 WS-TLS 的 CDN 中转采用 **Cloudflare 证书方案**：源站只有一个 TLS WS inbound（端口 `wspt`），即**统一的回源端口**，不再生成明文 HTTP 回源 inbound、不再依赖 nginx。Cloudflare 边缘 SSL 模式设为 **Full** 或 **Full(Strict)**，以 HTTPS 回源到该 TLS 端口。
+WS-TLS 的 CDN 中转采用 **Cloudflare 证书方案**：源站只有一个 TLS WS inbound（端口 `wspt`），即**统一的回源端口**，不再生成明文 HTTP 回源 inbound、不再依赖 nginx。Cloudflare 边缘 SSL 模式设为 **Full** 或 **Full(Strict)**，以 HTTPS 回源到该 TLS 端口。
 
 - **Full（推荐，默认 `cert=self`）**：源站用内置自签证书（99 年）即可，Cloudflare 边缘→源站全程加密但**不校验**源站证书，无需任何额外文件。
+- Web 生成器“源站证书”默认选中 **自签证书**；只有 Full(Strict) 才需要切到“粘贴证书”并填 Origin CA 证书/私钥。
 - **Full(Strict)**：Cloudflare 会校验源站证书，需选 `cert=custom`。在 DNS 控制台 SSL/TLS → Origin Server → Create Certificate 生成 **Cloudflare Origin CA 证书**，把证书与私钥全文**直接粘贴**到生成器（自动以 base64 传服务器解码存储），无需先上传文件。
 
 端口关系：客户端连 `cdn_host:cdn_port`（443/2053/2083/2087/2096/8443），SNI/Host 用**必填**的 `ws_cdn_sni`；Cloudflare 收到回源域名后按 SSL 模式把请求以 HTTPS 转发到源站。回源默认目标是 **443**，故建议直接设 `wspt=443`（此时 `wspt` 即统一端口）；若 `wspt` 用其他值，需在 Cloudflare 控制台为该域名添加 **Origin Rule**，把 443 改写为你的 `wspt`。
@@ -185,8 +186,8 @@ tests/smoke.sh               冒烟测试
 - 交付韧性：sing-box 固定版本 + SHA256（官方 → 本仓库镜像多源回退）；cloudflared 强校验模型——拿不到官方 SHA256 时默认 **fail-closed 拒绝安装**，绝不静默以"版本自报"代替完整性校验；仅当显式设置 `CLOUDFLARED_ALLOW_RUNTIME_VERIFY=1` 才允许降级（弱网机器的明确选择，不推荐用于生产）
 - 低内存：sing-box/cloudflared 按物理内存与 cgroup 上限自动设置 `GOMEMLIMIT` 软上限（防 OOM）；cloudflared 默认 `http2` 模式压内存尖峰；低于 200MB 内存自动提示资源约束
 - 保活：systemd 环境用 service + timer；OpenRC/无 systemd 用 cron + pidfile，cloudflared 异常退出约 1 分钟内自动拉起
-- WS-TLS CDN 证书方案（v1.2.4）：CDN 中转统一单端口（`wspt`=回源端口），Cloudflare SSL 用 Full/Full(Strict) 以 HTTPS 回源；`cert=self` 自签即可支持 Full，`cert=custom` 供 Full(Strict) 用 Cloudflare Origin CA 证书；已废弃 `ws_cdn_origin_port` 明文回源。
-- WS-TLS CDN 证书粘贴式导入（v1.2.5）：`cert=custom` 时界面直接把 PEM 证书/私钥内容粘贴进命令（`cert_b64`/`key_b64`），服务器解码写入托管目录自动加载，无需先上传文件；`cert_path`/`key_path` 文件路径方式保留兼容。
+- WS-TLS CDN 证书方案：CDN 中转统一单端口（`wspt`=回源端口），Cloudflare SSL 用 Full/Full(Strict) 以 HTTPS 回源；`cert=self` 自签即可支持 Full，`cert=custom` 供 Full(Strict) 用 Cloudflare Origin CA 证书；已废弃 `ws_cdn_origin_port` 明文回源。
+- WS-TLS CDN 证书粘贴式导入：`cert=custom` 时界面直接把 PEM 证书/私钥内容粘贴进命令（`cert_b64`/`key_b64`），服务器解码写入托管目录自动加载，无需先上传文件；`cert_path`/`key_path` 文件路径方式保留兼容。
 - 网络内核调优（v1.6.0，参数对齐 [jyucoeng/singbox-tools bbr.sh](https://github.com/jyucoeng/singbox-tools)）：默认启用 `BBR + fq`，**不再测速/不再推断带宽**，固定使用 `fq quantum=18028 initial_quantum=90140`、`tcp_rmem=4096 131072 33554432`、`tcp_wmem=4096 16384 33554432`、`tcp_limit_output_bytes=4194304`；持久化到 `/etc/sysctl.d/99-singbox-manager-net-tune.conf`，watchdog 每分钟检查并补齐重启后丢失的 fq qdisc（容器 noqueue 网卡自动跳过）；菜单 **8. BBR+FQ+缓存设置** 可随时重应用/查看，无任何网络测速环节。
 - 按需交付：`cloudflared` 仅在启用 Argo（环境变量 `argo` 或已存在 `vless-argo` 节点）时安装；纯 Reality/WS/TUIC/HY2/SOCKS5 部署不再白占约 40MB 磁盘；无 Argo 时更新/重装会自动回收未使用的 cloudflared，添加 Argo 节点时再按需安装。
 - 输出格式：`sbm list` / 安装结果改为**名称一行、分享链接单独顶格一行**（前后留空行），终端里双击/三击即可整行复制，不再把"链接: "前缀和 URL 混排。

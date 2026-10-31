@@ -294,10 +294,10 @@
         </div>
         <div id="ws-extra" style="display:none">
         <div class="row">
-          <label>VLESS-WS-TLS 端口 <span class="pill">wspt</span></label>
+          <label>源站回源端口（TLS） <span class="pill">wspt</span></label>
           <div class="ctl">
             <input type="text" class="port-input has-hint" id="wspt" placeholder="如 443，或点 🎲 随机" inputmode="numeric">
-            <span class="hint-inline">源站 TLS 端口=统一回源端口（CF 证书方案）</span>
+            <span class="hint-inline">源站监听/回源端口；CF Origin Rule 可把 443 改写为此端口</span>
             <button type="button" class="mini" id="rand-wspt" title="填入随机端口（10000-65535）">🎲</button>
           </div>
         </div>
@@ -319,20 +319,32 @@
               <option value="2096">2096</option>
               <option value="8443">8443</option>
             </select>
-            <span class="hint-inline">CDN 与 CF 隧道共用端口</span>
+            <span class="hint-inline">客户端连接 CDN 的边缘端口</span>
           </div>
         </div>
         <div class="row">
           <label>CDN 回源域名 <span class="pill">ws_cdn_sni</span> <b style="color:var(--warn)">必填</b></label>
           <input type="text" id="ws_cdn_sni" placeholder="必填：回源域名=SNI/Host（如 ws.example.com）">
         </div>
+        <div class="row">
+          <label>源站证书 <span class="pill">ws_cert_mode</span></label>
+          <div class="ctl">
+            <select id="ws_cert_mode" class="has-hint">
+              <option value="self" selected>自签证书（Cloudflare Full，推荐）</option>
+              <option value="custom">粘贴证书（Cloudflare Full Strict / Origin CA）</option>
+            </select>
+            <span class="hint-inline">自签证书自动生成，无需上传</span>
+          </div>
+        </div>
+        <div id="ws-custom-cert" style="display:none">
         <div class="row" id="row-ws-cert-content">
-          <label>源站证书（PEM） <span class="pill">cert</span> <b style="color:var(--warn)">必填</b></label>
+          <label>源站证书（PEM，仅自定义） <span class="pill">cert</span></label>
           <textarea id="ws_cert_content" rows="5" placeholder="粘贴 PEM 证书全文，如：&#10;-----BEGIN CERTIFICATE-----&#10;MIIE...&#10;-----END CERTIFICATE-----"></textarea>
         </div>
         <div class="row" id="row-ws-key-content">
-          <label>源站私钥（PEM） <span class="pill">key</span> <b style="color:var(--warn)">必填</b></label>
+          <label>源站私钥（PEM，仅自定义） <span class="pill">key</span></label>
           <textarea id="ws_key_content" rows="5" placeholder="粘贴 PEM 私钥全文，如：&#10;-----BEGIN PRIVATE KEY-----&#10;MIIE...&#10;-----END PRIVATE KEY-----"></textarea>
+        </div>
         </div>
         </div>
       </section>
@@ -803,13 +815,16 @@
         strEnv('cdn_host', 'cdn_host', envs);
         strEnv('cdn_port', 'cdn_port', envs);
         strEnv('ws_cdn_sni', 'ws_cdn_sni', envs);
-        // CF 证书方案：CDN 模式下下发 cert='custom' + 粘贴的证书内容
-        envs.push(['cert', "'custom'"]);
-        var certPem = val('ws_cert_content') || '';
-        var keyPem = val('ws_key_content') || '';
-        if (certPem && keyPem) {
-          envs.push(['cert_b64', qv(b64(certPem))]);
-          envs.push(['key_b64', qv(b64(keyPem))]);
+        // 源站证书：默认自签（Cloudflare Full）；仅选择粘贴证书时才下发 custom
+        var certMode = val('ws_cert_mode') || 'self';
+        envs.push(['cert', qv(certMode)]);
+        if (certMode === 'custom') {
+          var certPem = val('ws_cert_content') || '';
+          var keyPem = val('ws_key_content') || '';
+          if (certPem && keyPem) {
+            envs.push(['cert_b64', qv(b64(certPem))]);
+            envs.push(['key_b64', qv(b64(keyPem))]);
+          }
         }
       }
     }
@@ -855,8 +870,15 @@
   function syncCert() { /* 证书/私钥行始终可编辑，不做锁定 */ }
   function syncWs() {
     var on = val('ws-mode') === 'cdn';
-    ['cdn_host', 'cdn_port', 'ws_cdn_sni', 'ws_cert_content', 'ws_key_content', 'wspt'].forEach(function (id) {
+    ['cdn_host', 'cdn_port', 'ws_cdn_sni', 'ws_cert_mode', 'wspt'].forEach(function (id) {
       var el = $id(id); if (el) el.disabled = !on;
+    });
+    var certMode = val('ws_cert_mode') || 'self';
+    var custom = on && certMode === 'custom';
+    var certBox = $id('ws-custom-cert');
+    if (certBox) certBox.style.display = custom ? '' : 'none';
+    ['ws_cert_content', 'ws_key_content'].forEach(function (id) {
+      var el = $id(id); if (el) el.disabled = !custom;
     });
     var box = $id('ws-extra');
     if (box) box.style.display = on ? '' : 'none';
