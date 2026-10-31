@@ -89,7 +89,9 @@ url_encode() {
 }
 
 url_encode_many() {
-  jq -nr --args -- '$ARGS.positional[] | @uri' "$@"
+  # jq 1.6 rejects `--` before the filter; put it after the filter so the
+  # positional values are still treated as data, not options.
+  jq -nr --args '$ARGS.positional[] | @uri' -- "$@"
 }
 
 generate_uuid() {
