@@ -1,0 +1,6 @@
+# 这些文件只用于部署，不作为静态资源对外提供
+worker.js
+wrangler.toml
+.assetsignore
+
+# 允许保留的：index.html、_headers、assets/**

@@ -1,0 +1,13 @@
+name = "sbm-guide"
+main = "worker.js"
+compatibility_date = "2024-09-23"
+
+# 自定义域名（Cloudflare 会自动创建 DNS 记录与证书）
+routes = [
+  { pattern = "guide.1733.dpdns.org", custom_domain = true }
+]
+
+# 静态教程站：本目录即站点根目录，index.html 落在 /
+# 部署：cd interface/guide && npx wrangler deploy
+[assets]
+directory = "."

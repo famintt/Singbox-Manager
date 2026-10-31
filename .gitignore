@@ -3,3 +3,5 @@
 Thumbs.db
 dist/
 cf_token
+node_modules/
+.wrangler/
