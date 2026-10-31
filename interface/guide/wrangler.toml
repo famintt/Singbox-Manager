@@ -1,8 +1,8 @@
-name = "sbm-guide"
+name = "guide"
 main = "worker.js"
 compatibility_date = "2024-09-23"
 
-# 自定义域名（Cloudflare 会自动创建 DNS 记录与证书）
+# 自定义域名（guide.1733.dpdns.org 已在面板绑定到 guide 项目）
 routes = [
   { pattern = "guide.1733.dpdns.org", custom_domain = true }
 ]

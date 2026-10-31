@@ -4,3 +4,6 @@ wrangler.toml
 .assetsignore
 
 # 允许保留的：index.html、_headers、assets/**
+
+.wrangler/
+node_modules/
