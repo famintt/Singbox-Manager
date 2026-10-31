@@ -1,0 +1,1006 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>订阅设置教程 · Singbox-Manager + sub-worker 固定订阅</title>
+<meta name="description" content="一步步把 Singbox-Manager 的订阅设置和 sub-worker 配好：在 Cloudflare 部署 Worker、绑定 KV 与 TOKEN、设置域名、回填生成器、执行安装命令、客户端导入固定订阅地址。" />
+<link rel="canonical" href="https://sbm.1733.dpdns.org/guide/" />
+<meta name="theme-color" content="#0b1020" media="(prefers-color-scheme: dark)" />
+<meta name="theme-color" content="#f6f8fc" media="(prefers-color-scheme: light)" />
+<meta property="og:type" content="article" />
+<meta property="og:title" content="订阅设置教程 · Singbox-Manager + sub-worker" />
+<meta property="og:description" content="从 Cloudflare Worker 部署到客户端导入，13 步配好不会变的固定订阅地址。" />
+<meta property="og:url" content="https://sbm.1733.dpdns.org/guide/" />
+<meta property="og:image" content="https://sbm.1733.dpdns.org/guide/assets/og-cover.webp" />
+<meta name="twitter:card" content="summary_large_image" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%234f7cff'/%3E%3Ctext x='32' y='45' font-size='38' text-anchor='middle' fill='white' font-family='sans-serif'%3E%E2%9A%99%3C/text%3E%3C/svg%3E" />
+<style>
+  :root {
+    --bg: #0b1020;
+    --bg-soft: #0e1530;
+    --panel: #121831;
+    --panel-2: #161d3a;
+    --ink: #e9edf7;
+    --ink-soft: #b7c1d9;
+    --sub: #8f9cba;
+    --line: #263255;
+    --line-soft: #1e2947;
+    --acc: #4f7cff;
+    --acc-2: #7aa2ff;
+    --acc-soft: rgba(79, 124, 255, .14);
+    --ok: #22c55e;
+    --warn: #f59e0b;
+    --err: #ef4444;
+    --code-bg: #080d1c;
+    --code-ink: #d6e0f7;
+    --shadow: 0 18px 40px -24px rgba(0, 0, 0, .85);
+    --header-bg: rgba(11, 16, 32, .82);
+    --radius: 14px;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f6f8fc;
+      --bg-soft: #eef2fa;
+      --panel: #ffffff;
+      --panel-2: #f7f9fe;
+      --ink: #131a2b;
+      --ink-soft: #33415c;
+      --sub: #5b6a86;
+      --line: #dde4f1;
+      --line-soft: #e8edf7;
+      --acc: #3b6cf6;
+      --acc-2: #2b56d6;
+      --acc-soft: rgba(59, 108, 246, .10);
+      --ok: #15803d;
+      --warn: #b45309;
+      --err: #b91c1c;
+      --code-bg: #0f172a;
+      --code-ink: #e2e8f5;
+      --shadow: 0 16px 32px -26px rgba(20, 35, 80, .5);
+      --header-bg: rgba(246, 248, 252, .85);
+    }
+  }
+  html[data-theme="dark"] {
+    --bg: #0b1020; --bg-soft: #0e1530; --panel: #121831; --panel-2: #161d3a;
+    --ink: #e9edf7; --ink-soft: #b7c1d9; --sub: #8f9cba;
+    --line: #263255; --line-soft: #1e2947;
+    --acc: #4f7cff; --acc-2: #7aa2ff; --acc-soft: rgba(79, 124, 255, .14);
+    --ok: #22c55e; --warn: #f59e0b; --err: #ef4444;
+    --code-bg: #080d1c; --code-ink: #d6e0f7;
+    --shadow: 0 18px 40px -24px rgba(0, 0, 0, .85);
+    --header-bg: rgba(11, 16, 32, .82);
+  }
+  html[data-theme="light"] {
+    --bg: #f6f8fc; --bg-soft: #eef2fa; --panel: #ffffff; --panel-2: #f7f9fe;
+    --ink: #131a2b; --ink-soft: #33415c; --sub: #5b6a86;
+    --line: #dde4f1; --line-soft: #e8edf7;
+    --acc: #3b6cf6; --acc-2: #2b56d6; --acc-soft: rgba(59, 108, 246, .10);
+    --ok: #15803d; --warn: #b45309; --err: #b91c1c;
+    --code-bg: #0f172a; --code-ink: #e2e8f5;
+    --shadow: 0 16px 32px -26px rgba(20, 35, 80, .5);
+    --header-bg: rgba(246, 248, 252, .85);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    * { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+  }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.72 system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  a { color: var(--acc); text-decoration: none; }
+  a:hover { color: var(--acc-2); text-decoration: underline; text-underline-offset: 3px; }
+  :focus-visible { outline: 2px solid var(--acc); outline-offset: 3px; border-radius: 6px; }
+  img { max-width: 100%; height: auto; }
+
+  /* ---------- header ---------- */
+  .progress { position: fixed; inset: 0 0 auto 0; height: 3px; z-index: 60; background: transparent; }
+  .progress span { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--acc), #a86bff); transition: width .08s linear; }
+  .topbar {
+    position: sticky; top: 0; z-index: 50;
+    display: flex; align-items: center; gap: 14px;
+    height: 58px; padding: 0 20px;
+    background: var(--header-bg);
+    backdrop-filter: saturate(160%) blur(12px);
+    -webkit-backdrop-filter: saturate(160%) blur(12px);
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; color: var(--ink); font-size: 15px; white-space: nowrap; }
+  .brand:hover { text-decoration: none; color: var(--ink); }
+  .brand .logo {
+    width: 28px; height: 28px; border-radius: 8px; flex: none;
+    background: linear-gradient(140deg, var(--acc), #8f5cff);
+    display: grid; place-items: center; color: #fff; font-size: 15px;
+  }
+  .brand small { font-weight: 500; color: var(--sub); font-size: 12.5px; }
+  .topbar .spacer { flex: 1; }
+  .topbar .links { display: flex; align-items: center; gap: 4px; }
+  .topbar .links a { color: var(--ink-soft); font-size: 13.5px; padding: 7px 10px; border-radius: 8px; }
+  .topbar .links a:hover { background: var(--acc-soft); color: var(--acc); text-decoration: none; }
+  .icon-btn {
+    width: 36px; height: 36px; display: grid; place-items: center;
+    border: 1px solid var(--line); border-radius: 10px;
+    background: var(--panel); color: var(--ink); cursor: pointer; font-size: 16px; line-height: 1;
+    transition: transform .2s, border-color .2s;
+  }
+  .icon-btn:hover { transform: rotate(18deg); border-color: var(--acc); }
+  @media (max-width: 640px) {
+    .topbar .links a.hide-sm { display: none; }
+    .brand small { display: none; }
+  }
+
+  /* ---------- layout ---------- */
+  .layout {
+    max-width: 1240px; margin: 0 auto; padding: 34px 22px 72px;
+    display: grid; grid-template-columns: 228px minmax(0, 1fr); gap: 46px;
+    align-items: start;
+  }
+  .toc { position: sticky; top: 82px; font-size: 13.5px; }
+  .toc h2 {
+    margin: 0 0 12px; font-size: 11.5px; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--sub); font-weight: 700;
+  }
+  .toc ol { list-style: none; margin: 0; padding: 0; border-left: 1px solid var(--line); }
+  .toc li a {
+    display: block; padding: 7px 0 7px 14px; margin-left: -1px;
+    border-left: 2px solid transparent; color: var(--ink-soft); line-height: 1.45;
+  }
+  .toc li a:hover { color: var(--acc); text-decoration: none; }
+  .toc li a.active { color: var(--acc); border-left-color: var(--acc); font-weight: 600; background: linear-gradient(90deg, var(--acc-soft), transparent 70%); }
+  .toc .toc-extra { margin-top: 18px; padding-left: 14px; color: var(--sub); font-size: 12.5px; line-height: 1.9; }
+
+  main { min-width: 0; }
+
+  /* ---------- hero ---------- */
+  .hero { padding: 4px 0 10px; }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 12.5px; font-weight: 600; letter-spacing: .04em;
+    color: var(--acc); background: var(--acc-soft);
+    border: 1px solid rgba(79, 124, 255, .28); border-radius: 999px; padding: 4px 12px;
+  }
+  .hero h1 {
+    font-size: clamp(28px, 4.4vw, 42px); line-height: 1.22;
+    margin: 16px 0 12px; letter-spacing: -.015em;
+  }
+  .hero h1 .grad { background: linear-gradient(96deg, var(--acc), #a86bff 70%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .hero .lede { font-size: 17px; color: var(--ink-soft); margin: 0 0 22px; max-width: 62ch; }
+  .chips { display: flex; flex-wrap: wrap; gap: 9px; margin: 0 0 6px; padding: 0; list-style: none; }
+  .chips li {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-size: 13px; color: var(--ink-soft);
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 999px; padding: 6px 13px;
+  }
+  .chips li b { color: var(--ink); font-weight: 600; }
+
+  /* ---------- headings ---------- */
+  .part { margin-top: 54px; scroll-margin-top: 76px; }
+  .part > h2 {
+    display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+    font-size: 24px; line-height: 1.3; margin: 0 0 8px; letter-spacing: -.01em;
+  }
+  .part > h2 .part-no {
+    font-size: 12px; font-weight: 700; letter-spacing: .1em; color: var(--acc);
+    background: var(--acc-soft); border-radius: 6px; padding: 3px 8px; transform: translateY(-2px);
+  }
+  .part > .part-sub { color: var(--sub); margin: 0 0 26px; font-size: 14.5px; }
+
+  h3 { font-size: 17px; margin: 0; line-height: 1.45; letter-spacing: -.005em; }
+  p { margin: 0 0 14px; }
+  .lead-p { color: var(--ink-soft); }
+
+  /* ---------- steps ---------- */
+  .step {
+    position: relative;
+    display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 0 16px;
+    padding: 18px 0 6px; scroll-margin-top: 76px;
+  }
+  .step + .step { border-top: 1px dashed var(--line); margin-top: 14px; }
+  .step-no {
+    width: 34px; height: 34px; border-radius: 50%;
+    display: grid; place-items: center;
+    font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums;
+    color: #fff; background: linear-gradient(140deg, var(--acc), #7a5cff);
+    box-shadow: 0 6px 16px -8px rgba(79, 124, 255, .9);
+  }
+  .step-body { min-width: 0; padding-top: 3px; }
+  .step-body > p:first-child { margin-top: 0; }
+  .step-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+  /* ---------- figures ---------- */
+  .fig { margin: 16px 0 6px; }
+  .fig .zoom {
+    display: block; margin: 0 auto; max-width: min(100%, var(--figw, 900px));
+    border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+    background: var(--panel-2); cursor: zoom-in; line-height: 0;
+    box-shadow: var(--shadow); transition: border-color .2s, transform .2s;
+  }
+  .fig .zoom:hover { border-color: var(--acc); transform: translateY(-1px); }
+  .fig img { display: block; width: 100%; height: auto; }
+  .fig figcaption {
+    max-width: min(100%, var(--figw, 900px)); margin: 8px auto 0;
+    font-size: 12.8px; line-height: 1.6; color: var(--sub);
+    padding-left: 10px; border-left: 2px solid var(--line);
+  }
+
+  /* ---------- code ---------- */
+  .code-wrap { position: relative; margin: 16px 0 18px; }
+  pre {
+    margin: 0; padding: 16px 18px; overflow-x: auto;
+    background: var(--code-bg); color: var(--code-ink);
+    border: 1px solid #1d2740; border-radius: 12px;
+    font: 13.4px/1.7 ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", "Microsoft YaHei", monospace;
+    tab-size: 2;
+  }
+  pre code { font: inherit; color: inherit; background: none; }
+  .copy-btn {
+    position: absolute; top: 9px; right: 9px;
+    font-size: 12px; font-family: inherit;
+    color: #c8d5f2; background: rgba(255, 255, 255, .08);
+    border: 1px solid rgba(255, 255, 255, .16); border-radius: 7px;
+    padding: 4px 10px; cursor: pointer; transition: background .15s, color .15s;
+  }
+  .copy-btn:hover { background: rgba(255, 255, 255, .18); color: #fff; }
+  .copy-btn.done { background: rgba(34, 197, 94, .9); border-color: transparent; color: #04210f; }
+  code.inline {
+    font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--acc-soft); color: var(--acc-2);
+    border: 1px solid rgba(79, 124, 255, .22);
+    padding: 1px 6px; border-radius: 6px;
+    overflow-wrap: break-word; /* 长 URL 允许断行，否则窄屏会横向溢出 */
+  }
+  html[data-theme="light"] code.inline { color: var(--acc); }
+  /* 标题里的行内代码：去掉药丸底，避免像按钮 */
+  h1 code.inline, h2 code.inline, h3 code.inline {
+    background: none; border: 0; padding: 0; border-radius: 0;
+    font-size: .82em; color: var(--acc); letter-spacing: .01em;
+  }
+
+  /* ---------- callouts ---------- */
+  .note, .warn, .tip {
+    display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 12px;
+    margin: 18px 0; padding: 14px 16px;
+    border-radius: 12px; font-size: 14.5px; line-height: 1.7;
+    border: 1px solid var(--line); background: var(--panel);
+  }
+  .note { border-left: 3px solid var(--acc); background: var(--acc-soft); }
+  .warn { border-left: 3px solid var(--warn); background: rgba(245, 158, 11, .10); }
+  .tip  { border-left: 3px solid var(--ok);  background: rgba(34, 197, 94, .09); }
+  .note .ico, .warn .ico, .tip .ico { font-size: 15px; line-height: 1.5; }
+  .note p:last-child, .warn p:last-child, .tip p:last-child, .note ul:last-child, .warn ul:last-child { margin-bottom: 0; }
+  .note strong, .warn strong, .tip strong { color: var(--ink); }
+
+  /* ---------- misc blocks ---------- */
+  ul.checks { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 10px; }
+  ul.checks li { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 10px; font-size: 14.8px; color: var(--ink-soft); }
+  ul.checks li .tick { color: var(--ok); font-weight: 700; }
+  ul.checks li b { color: var(--ink); }
+
+  .diagram {
+    margin: 18px 0 6px; padding: 18px; overflow-x: auto;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    font: 12.6px/1.75 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: var(--ink-soft); white-space: pre;
+  }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(212px, 1fr)); gap: 12px; margin: 18px 0 4px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 16px; font-size: 14px; color: var(--ink-soft); line-height: 1.65;
+  }
+  .card b { display: block; color: var(--ink); font-size: 14.5px; margin-bottom: 4px; }
+
+  /* ---------- faq ---------- */
+  details.faq {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 0 16px; margin: 10px 0; scroll-margin-top: 76px;
+  }
+  details.faq[open] { border-color: var(--acc); }
+  details.faq summary {
+    cursor: pointer; padding: 13px 0; font-weight: 600; font-size: 15px;
+    list-style: none; display: flex; align-items: center; gap: 10px;
+  }
+  details.faq summary::-webkit-details-marker { display: none; }
+  details.faq summary::before {
+    content: "＋"; color: var(--acc); font-weight: 700; font-size: 14px;
+    width: 16px; flex: none; transition: transform .2s;
+  }
+  details.faq[open] summary::before { content: "－"; }
+  details.faq .faq-body { padding: 0 0 14px 26px; font-size: 14.6px; color: var(--ink-soft); border-top: 1px dashed var(--line); padding-top: 12px; }
+  details.faq .faq-body p:last-child, details.faq .faq-body pre:last-child { margin-bottom: 0; }
+
+  /* ---------- footer ---------- */
+  .foot {
+    margin-top: 56px; padding-top: 22px; border-top: 1px solid var(--line);
+    font-size: 13px; color: var(--sub); display: flex; flex-wrap: wrap; gap: 6px 18px;
+    align-items: center; justify-content: space-between;
+  }
+  .foot a { color: var(--ink-soft); }
+
+  /* ---------- lightbox ---------- */
+  .lightbox {
+    position: fixed; inset: 0; z-index: 100; display: none;
+    background: rgba(4, 8, 20, .93);
+    padding: 3vmin; align-items: center; justify-content: center;
+  }
+  .lightbox.on { display: flex; }
+  .lightbox img {
+    max-width: 100%; max-height: 94vh; border-radius: 8px;
+    box-shadow: 0 30px 80px -20px #000; image-rendering: auto;
+  }
+  .lightbox .close {
+    position: absolute; top: 14px; right: 16px; width: 40px; height: 40px;
+    border-radius: 50%; border: 1px solid rgba(255, 255, 255, .3);
+    background: rgba(255, 255, 255, .1); color: #fff; font-size: 20px;
+    cursor: pointer; display: grid; place-items: center;
+  }
+  .lightbox .hint { position: absolute; bottom: 14px; left: 0; right: 0; text-align: center; color: rgba(255, 255, 255, .55); font-size: 12.5px; }
+
+  /* ---------- print ---------- */
+  @media print {
+    .topbar, .toc, .progress, .copy-btn, .lightbox { display: none !important; }
+    .layout { display: block; max-width: none; padding: 0; }
+    body { background: #fff; color: #111; font-size: 11.5pt; }
+    .fig, .step, .card, details.faq { break-inside: avoid; }
+    .part { break-before: auto; }
+    a { color: #111; text-decoration: underline; }
+    .fig .zoom { border: 1px solid #ccc; box-shadow: none; }
+  }
+
+  /* ---------- responsive ---------- */
+  @media (max-width: 1080px) {
+    .layout { grid-template-columns: minmax(0, 1fr); gap: 0; padding-top: 22px; }
+    .toc { position: static; order: -1; margin-bottom: 26px; padding: 14px 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
+    .toc h2 { margin-bottom: 8px; }
+    .toc ol { display: flex; flex-wrap: wrap; gap: 6px 4px; border: 0; }
+    .toc li a { border-left: 0; padding: 5px 10px; border-radius: 8px; background: var(--panel-2); font-size: 13px; }
+    .toc li a.active { background: var(--acc-soft); }
+    .toc .toc-extra { display: none; }
+  }
+  @media (max-width: 620px) {
+    .layout { padding: 18px 15px 56px; }
+    .step { grid-template-columns: 30px minmax(0, 1fr); gap: 0 12px; }
+    .step-no { width: 28px; height: 28px; font-size: 13px; }
+    .part { margin-top: 42px; }
+    .part > h2 { font-size: 21px; }
+    .hero .lede { font-size: 15.5px; }
+    pre { font-size: 12.4px; padding: 13px 14px; }
+    .foot { flex-direction: column; align-items: flex-start; }
+  }
+</style>
+</head>
+<body>
+<div class="progress"><span id="progress-bar"></span></div>
+
+<header class="topbar">
+  <a class="brand" href="../">
+    <span class="logo" aria-hidden="true">⚙</span>
+    <span>Singbox-Manager <small>订阅设置教程</small></span>
+  </a>
+  <span class="spacer"></span>
+  <nav class="links" aria-label="相关链接">
+    <a href="../" class="hide-sm">生成器首页</a>
+    <a href="https://github.com/famintt/sub-worker" target="_blank" rel="noopener" class="hide-sm">sub-worker</a>
+    <a href="#faq">常见问题</a>
+  </nav>
+  <button class="icon-btn" id="theme-btn" type="button" title="切换深色 / 浅色" aria-label="切换深色 / 浅色">☀️</button>
+</header>
+
+<div class="layout">
+  <aside class="toc" aria-label="本页目录">
+    <h2>本页目录</h2>
+    <ol id="toc-list">
+      <li><a href="#before">开始之前</a></li>
+      <li><a href="#part-1">一、打开「订阅设置」</a></li>
+      <li><a href="#part-2">二、部署 sub-worker</a></li>
+      <li><a href="#part-3">三、创建 KV 并绑定</a></li>
+      <li><a href="#part-4">四、绑定域名</a></li>
+      <li><a href="#part-5">五、回填域名与 TOKEN</a></li>
+      <li><a href="#part-6">六、执行安装命令</a></li>
+      <li><a href="#part-7">七、客户端导入订阅</a></li>
+      <li><a href="#faq">常见问题</a></li>
+    </ol>
+    <div class="toc-extra">
+      全程约 15 分钟<br />无需写代码，只需复制粘贴
+    </div>
+  </aside>
+
+  <main>
+    <section class="hero" id="top">
+      <span class="eyebrow">Singbox-Manager × sub-worker</span>
+      <h1>订阅设置教程<br /><span class="grad">把订阅地址固定下来</span></h1>
+      <p class="lede">
+        一键命令生成器（sbm）能直接给你一条临时订阅地址，但 cloudflared 隧道每次重启都会换域名，客户端就要重新导入。本教程用 <b>sub-worker</b> 把订阅内容存进 Cloudflare Worker + KV，客户端从此只认一个固定地址。
+      </p>
+      <ul class="chips">
+        <li>⏱ 约 <b>15 分钟</b></li>
+        <li>☁️ <b>Cloudflare</b> 免费账号即可</li>
+        <li>🖥 一台能 SSH 的 <b>NAT 机 / VPS</b></li>
+        <li>💸 <b>零成本</b>，额度足够日常使用</li>
+      </ul>
+    </section>
+
+    <!-- ================= 开始之前 ================= -->
+    <section class="part" id="before">
+      <h2><span class="part-no">准备</span>开始之前</h2>
+      <p class="part-sub">先把东西备齐，后面一路点下去就不会卡住。</p>
+
+      <ul class="checks">
+        <li><span class="tick">✓</span><span>一个 <b>Cloudflare 账号</b>，登录 <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener">dash.cloudflare.com</a>，免费版即可。</span></li>
+        <li><span class="tick">✓</span><span>一台已经装好 sbm 的 <b>服务器</b>（NAT 机或 VPS 都行），能用 SSH 登进去。</span></li>
+        <li><span class="tick">✓</span><span>可选：一个<b>已接入 Cloudflare 的域名</b>。不绑也能用，Worker 自带的 <code class="inline">*.workers.dev</code> 一样能跑。</span></li>
+        <li><span class="tick">✓</span><span>手机上装好<b>客户端</b>（v2rayN、Clash、Mihomo、sing-box 都可以），最后一步要用。</span></li>
+      </ul>
+
+      <div class="note">
+        <span class="ico" aria-hidden="true">💡</span>
+        <div>
+          <p><strong>两个名字必须一字不差</strong>：KV 绑定的变量名是 <code class="inline">SUBS</code>，密钥名是 <code class="inline">TOKEN</code>，都是<strong>全大写</strong>。Worker 代码里写死了这两个名字，改成小写就会 500。</p>
+        </div>
+      </div>
+
+      <p style="margin-top:26px">整个流程的数据流向是这样的：</p>
+      <div class="diagram" role="img" aria-label="架构示意图：服务器把订阅上报给 Cloudflare Worker，客户端从 Worker 拉取固定订阅地址">
+Singbox-Manager（命令生成器）
+        │  ① 生成安装命令（启用 Worker 固定订阅）
+        ▼
+   你的服务器  ──② 上报订阅（POST /api/v1/report/:machine）──▶  Cloudflare Worker
+        ▲                                                          │  KV: SUBS
+        │                                                          ▼
+   客户端  ◀──────────── ③ GET /sub/all/&lt;TOKEN&gt; ────────────────┘</div>
+
+      <div class="cards">
+        <div class="card"><b>① 一次性配置</b>Worker 和 KV 只需要建一次，之后一直复用。</div>
+        <div class="card"><b>② 地址永不变</b>机器重装、重启、换 IP 都不影响客户端订阅。</div>
+        <div class="card"><b>③ 多机合并</b>多台服务器上报到同一个 Worker，一条订阅带走全部节点。</div>
+      </div>
+    </section>
+
+    <!-- ================= 一 ================= -->
+    <section class="part" id="part-1">
+      <h2><span class="part-no">第一部分</span>在生成器里打开「订阅设置」</h2>
+      <p class="part-sub">先认清界面，找到第 ⑧ 块，这一步只是看，不用填任何东西。</p>
+
+      <article class="step" id="step-1">
+        <div class="step-no">1</div>
+        <div class="step-body">
+          <div class="step-head"><h3>打开生成器首页</h3></div>
+          <p>浏览器访问 <a href="https://sbm.1733.dpdns.org/" target="_blank" rel="noopener">https://sbm.1733.dpdns.org/</a>，默认界面长这样：左边是协议与端口、SNI 配置，右边是全局配置、Argo、订阅设置等板块。</p>
+          <figure class="fig" style="--figw:1600px">
+            <a class="zoom" href="assets/shot-01.webp"><img src="assets/shot-01.webp" width="1600" height="1674" loading="lazy" decoding="async" alt="Singbox-Manager 生成器首页的默认界面，包含协议与端口、SNI 配置、全局配置等板块"></a>
+            <figcaption>生成器首页。这一页负责「生成 SSH 一键命令」，本教程只用到其中的订阅设置板块。</figcaption>
+          </figure>
+        </div>
+      </article>
+
+      <article class="step" id="step-2">
+        <div class="step-no">2</div>
+        <div class="step-body">
+          <div class="step-head"><h3>看看全部启用后的样子</h3></div>
+          <p>每个板块都可以单独开关，全部启用后界面会更长一些。你不需要照抄，按自己需要的协议填就行——本教程只关心第 ⑧ 块。</p>
+          <figure class="fig" style="--figw:1600px">
+            <a class="zoom" href="assets/shot-02.webp"><img src="assets/shot-02.webp" width="1600" height="2448" loading="lazy" decoding="async" alt="全部协议启用后的生成器界面，底部是生成的 SSH 一键命令"></a>
+            <figcaption>全部启用后的界面，最下方是生成的 SSH 一键命令区域。</figcaption>
+          </figure>
+        </div>
+      </article>
+
+      <article class="step" id="step-3">
+        <div class="step-no">3</div>
+        <div class="step-body">
+          <div class="step-head"><h3>找到第 ⑧ 块「订阅设置」</h3></div>
+          <p>往下滚，找到标着 <b>⑧ 订阅设置</b> 的板块。里面有三个输入：</p>
+          <ul>
+            <li><b>① 启用订阅</b>：下拉选择「启用 Worker 固定订阅」；</li>
+            <li><b>② 订阅域名</b>：填 Worker 的域名，比如 <code class="inline">https://subtest.example.com</code>；</li>
+            <li><b>③ 订阅密钥</b>：填 <code class="inline">TOKEN</code>，建议用 UUID。</li>
+          </ul>
+          <p>要填 ② 和 ③，得先有一个 Worker，所以<strong>先点第 ④ 处的 sub-worker 链接</strong>把它部署起来。这正是后面第二部分要做的事。</p>
+          <figure class="fig" style="--figw:698px">
+            <a class="zoom" href="assets/shot-03.webp"><img src="assets/shot-03.webp" width="698" height="309" loading="lazy" decoding="async" alt="生成器里的订阅设置板块，标注了启用订阅、订阅域名、订阅密钥和 sub-worker 链接四个位置"></a>
+            <figcaption>订阅设置板块：①②③ 是要填的三项，④ 是 sub-worker 仓库入口。</figcaption>
+          </figure>
+          <div class="tip">
+            <span class="ico" aria-hidden="true">✅</span>
+            <div><p>两步都填好之后才会真正启用 Worker 订阅；<strong>两项留空</strong>就退回原来的临时订阅模式，什么都不会坏。</p></div>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <!-- ================= 二 ================= -->
+    <section class="part" id="part-2">
+      <h2><span class="part-no">第二部分</span>把 sub-worker 部署到 Cloudflare</h2>
+      <p class="part-sub">用最省事的单文件方式：复制一段代码，粘到 Cloudflare 里点部署。</p>
+
+      <article class="step" id="step-4">
+        <div class="step-no">4</div>
+        <div class="step-body">
+          <div class="step-head"><h3>打开 sub-worker 仓库，选单文件版本</h3></div>
+          <p>打开 <a href="https://github.com/famintt/sub-worker" target="_blank" rel="noopener">github.com/famintt/sub-worker</a>，按箭头所指点开 <code class="inline">worker.single.js</code>——这是全部代码打成一个文件、可以直接粘进控制台的版本。</p>
+          <figure class="fig" style="--figw:932px">
+            <a class="zoom" href="assets/shot-04.webp"><img src="assets/shot-04.webp" width="932" height="655" loading="lazy" decoding="async" alt="sub-worker 仓库文件列表，箭头指向 worker.single.js"></a>
+            <figcaption>仓库根目录里的 <code class="inline">worker.single.js</code>，单文件部署用这一个就够。</figcaption>
+          </figure>
+        </div>
+      </article>
+
+      <article class="step" id="step-5">
+        <div class="step-no">5</div>
+        <div class="step-body">
+          <div class="step-head"><h3>复制全部代码</h3></div>
+          <p>点开后点右上角的两个方框图标（或点进代码区按 <kbd>Ctrl</kbd>+<kbd>A</kbd> 全选、<kbd>Ctrl</kbd>+<kbd>C</kbd> 复制）把整份代码拿走。</p>
+          <figure class="fig" style="--figw:1184px">
+            <a class="zoom" href="assets/shot-05.webp"><img src="assets/shot-05.webp" width="1184" height="719" loading="lazy" decoding="async" alt="worker.single.js 的代码页面，标注了复制全部代码的按钮"></a>
+            <figcaption>复制按钮在代码区右上角，复制完整的文件、不要漏掉首尾。</figcaption>
+          </figure>
+          <div class="warn">
+            <span class="ico" aria-hidden="true">⚠️</span>
+            <div><p>一定要复制<b>整份文件</b>。少了大括号或最后一行，部署会直接报语法错误。</p></div>
+          </div>
+        </div>
+      </article>
+
+      <article class="step" id="step-6">
+        <div class="step-no">6</div>
+        <div class="step-body">
+          <div class="step-head"><h3>进 Cloudflare 控制台，创建 Worker</h3></div>
+          <p>打开 <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener">dash.cloudflare.com</a> 登录，按图中的顺序进入 <b>Workers 和 Pages</b>，点「创建」→ 选 Worker → 起个名字（例如 <code class="inline">sub-worker</code>）创建。</p>
+          <figure class="fig" style="--figw:560px">
+            <a class="zoom" href="assets/shot-06.webp"><img src="assets/shot-06.webp" width="560" height="858" loading="lazy" decoding="async" alt="Cloudflare 控制台左侧导航，标出 Workers 和 Pages 入口"></a>
+            <figcaption>左侧导航里的入口（图中有编号标注）。</figcaption>
+          </figure>
+          <figure class="fig" style="--figw:1228px">
+            <a class="zoom" href="assets/shot-07.webp"><img src="assets/shot-07.webp" width="1228" height="239" loading="lazy" decoding="async" alt="Workers 和 Pages 顶部的创建按钮"></a>
+            <figcaption>页面顶部的「创建」按钮。</figcaption>
+          </figure>
+          <figure class="fig" style="--figw:872px">
+            <a class="zoom" href="assets/shot-08.webp"><img src="assets/shot-08.webp" width="872" height="527" loading="lazy" decoding="async" alt="选择创建 Worker 的选项"></a>
+            <figcaption>选择 Worker 类型。</figcaption>
+          </figure>
+          <figure class="fig" style="--figw:848px">
+            <a class="zoom" href="assets/shot-09.webp"><img src="assets/shot-09.webp" width="848" height="805" loading="lazy" decoding="async" alt="给 Worker 命名的对话框"></a>
+            <figcaption>给 Worker 起名字，名字会出现在 <code class="inline">*.workers.dev</code> 域名里。</figcaption>
+          </figure>
+          <figure class="fig" style="--figw:1600px">
+            <a class="zoom" href="assets/shot-10.webp"><img src="assets/shot-10.webp" width="1600" height="864" loading="lazy" decoding="async" alt="Worker 在线编辑器界面"></a>
+            <figcaption>进入在线编辑器，左边是代码、右边是预览。</figcaption>
+          </figure>
+          <figure class="fig" style="--figw:1600px">
+            <a class="zoom" href="assets/shot-11.webp"><img src="assets/shot-11.webp" width="1600" height="828" loading="lazy" decoding="async" alt="把 worker.single.js 粘贴到编辑器并点击部署"></a>
+            <figcaption>把复制的代码整份粘到 ① 的位置，然后点 ② 的「部署」。</figcaption>
+          </figure>
+        </div>
+      </article>
+    </section>
+
+    <!-- ================= 三 ================= -->
+    <section class="part" id="part-3">
+      <h2><span class="part-no">第三部分</span>创建 KV，并绑定 <code class="inline">SUBS</code> 和 <code class="inline">TOKEN</code></h2>
+      <p class="part-sub">Worker 自身不存数据，订阅内容放在 KV 里；<code class="inline">TOKEN</code> 则是唯一的口令。</p>
+
+      <article class="step" id="step-7">
+        <div class="step-no">7</div>
+        <div class="step-body">
+          <div class="step-head"><h3>新建一个 Workers KV 命名空间</h3></div>
+          <p>回到 Cloudflare 主界面，左侧选 <b>存储与数据库</b> → <b>Workers KV</b>，新建一个命名空间。名字可以随便起，比如 <code class="inline">subs</code>（小写没关系，这里只是给人看的名字）。</p>
+          <figure class="fig" style="--figw:1528px">
+            <a class="zoom" href="assets/shot-12.webp"><img src="assets/shot-12.webp" width="1528" height="904" loading="lazy" decoding="async" alt="Cloudflare 控制台的存储与数据库菜单，选中 Workers KV"></a>
+            <figcaption>在「存储与数据库」里找到 Workers KV。</figcaption>
+          </figure>
+          <figure class="fig" style="--figw:560px">
+            <a class="zoom" href="assets/shot-13.webp"><img src="assets/shot-13.webp" width="560" height="388" loading="lazy" decoding="async" alt="创建 KV 命名空间的按钮"></a>
+            <figcaption>点「创建命名空间」新建一个。</figcaption>
+          </figure>
+        </div>
+      </article>
+
+      <article class="step" id="step-8">
+        <div class="step-no">8</div>
+        <div class="step-body">
+          <div class="step-head"><h3>回到 Worker，绑定 KV 变量名 <code class="inline">SUBS</code></h3></div>
+          <p>回到 <b>Workers 和 Pages</b>，点开刚才创建的那个 Worker，进「设置」→「绑定」→ 添加 <b>KV 命名空间</b> 绑定：</p>
+          <ul>
+            <li><b>变量名称</b>：填 <code class="inline">SUBS</code>（<strong>大写</strong>，这是代码里读的名字）；</li>
+            <li><b>KV 命名空间</b>：选刚创建的那个；</li>
+            <li>点「添加绑定」。</li>
+          </ul>
+          <figure class="fig" style="--figw:1153px">
+            <a class="zoom" href="assets/shot-14.webp"><img src="assets/shot-14.webp" width="1153" height="348" loading="lazy" decoding="async" alt="Workers 和 Pages 列表里点开刚创建的 Worker"></a>
+            <figcaption>在列表里点开自己的 Worker。</figcaption>
+          </figure>
+          <figure class="fig" style="--figw:1600px">
+            <a class="zoom" href="assets/shot-15.webp"><img src="assets/shot-15.webp" width="1600" height="850" loading="lazy" decoding="async" alt="Worker 设置菜单，标注了绑定与变量所在的位置"></a>
+            <figcaption>Worker 的「设置」页面。</figcaption>
+          </figure>
+          <figure class="fig" style="--figw:804px">
+            <a class="zoom" href="assets/shot-16.webp"><img src="assets/shot-16.webp" width="804" height="928" loading="lazy" decoding="async" alt="设置里的绑定选项"></a>
+            <figcaption>点「绑定」进入绑定列表。</figcaption>
+          </figure>
+          <figure class="fig" style="--figw:667px">
+            <a class="zoom" href="assets/shot-17.webp"><img src="assets/shot-17.webp" width="667" height="564" loading="lazy" decoding="async" alt="添加 KV 命名空间绑定，变量名称填 SUBS"></a>
+            <figcaption>① 变量名称填大写的 <code class="inline">SUBS</code>；② 选刚才建的 KV；③ 添加绑定。</figcaption>
+          </figure>
+        </div>
+      </article>
+
+      <article class="step" id="step-9">
+        <div class="step-no">9</div>
+        <div class="step-body">
+          <div class="step-head"><h3>添加密钥 <code class="inline">TOKEN</code></h3></div>
+          <p>还在「设置」里，找到「变量与机密 / 环境变量」，添加一条：</p>
+          <ul>
+            <li><b>密钥名</b>：<code class="inline">TOKEN</code>（<strong>大写</strong>）；</li>
+            <li><b>值</b>：一串随机口令，推荐用 UUID，比如去 <a href="https://www.uuid.online/" target="_blank" rel="noopener">uuid.online</a> 生成一个；</li>
+            <li><b>类型</b>：选「密钥 / Secret」（加密保存，之后只显示掩码）。</li>
+          </ul>
+          <figure class="fig" style="--figw:1600px">
+            <a class="zoom" href="assets/shot-15.webp"><img src="assets/shot-15.webp" width="1600" height="850" loading="lazy" decoding="async" alt="Worker 设置页面，标注变量与机密的位置"></a>
+            <figcaption>和上一步同一个「设置」页，② 处就是「变量与机密」。</figcaption>
+          </figure>
+          <figure class="fig" style="--figw:1155px">
+            <a class="zoom" href="assets/shot-18.webp"><img src="assets/shot-18.webp" width="1155" height="571" loading="lazy" decoding="async" alt="Worker 设置页里的变量与机密入口"></a>
+            <figcaption>点进「变量与机密」。</figcaption>
+          </figure>
+          <figure class="fig" style="--figw:602px">
+            <a class="zoom" href="assets/shot-19.webp"><img src="assets/shot-19.webp" width="602" height="449" loading="lazy" decoding="async" alt="添加环境变量对话框，密钥 TOKEN，值为一个 UUID"></a>
+            <figcaption>密钥名 <code class="inline">TOKEN</code>，值填 UUID，记得选「密钥」类型。</figcaption>
+          </figure>
+          <div class="warn">
+            <span class="ico" aria-hidden="true">⚠️</span>
+            <div>
+              <p>只填 token 本身：<b>不要</b>带 <code class="inline">TOKEN=</code> 前缀、不要加引号、不要有前后的空格或换行。Worker 是逐字符精确比较的，差一个空格就「对不上」。</p>
+            </div>
+          </div>
+          <div class="note">
+            <span class="ico" aria-hidden="true">💡</span>
+            <div><p>绑定或变量改完，Cloudflare 会生成一个新版本，记得<b>点一次「部署」</b>让它生效。</p></div>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <!-- ================= 四 ================= -->
+    <section class="part" id="part-4">
+      <h2><span class="part-no">第四部分</span>绑定自己的域名（可选）</h2>
+      <p class="part-sub">不绑也能用，直接用 <code class="inline">xxx.workers.dev</code> 就行；绑了更好记。</p>
+
+      <article class="step" id="step-10">
+        <div class="step-no">10</div>
+        <div class="step-body">
+          <div class="step-head"><h3>添加自定义域名</h3></div>
+          <p>在 Worker 的「设置」→ <b>域和路由 / Domains &amp; Routes</b> → 添加自定义域名，填一个子域名，例如 <code class="inline">subtest.example.com</code>。这个域名所在的 zone 必须已经接入 Cloudflare。</p>
+          <figure class="fig" style="--figw:1600px">
+            <a class="zoom" href="assets/shot-20.webp"><img src="assets/shot-20.webp" width="1600" height="711" loading="lazy" decoding="async" alt="Worker 设置里的域和路由页面"></a>
+            <figcaption>「域和路由」里添加自定义域名。</figcaption>
+          </figure>
+          <figure class="fig" style="--figw:514px">
+            <a class="zoom" href="assets/shot-21.webp"><img src="assets/shot-21.webp" width="514" height="309" loading="lazy" decoding="async" alt="添加自定义域名的输入框"></a>
+            <figcaption>填入子域名。</figcaption>
+          </figure>
+          <figure class="fig" style="--figw:515px">
+            <a class="zoom" href="assets/shot-22.webp"><img src="assets/shot-22.webp" width="515" height="368" loading="lazy" decoding="async" alt="添加成功后的确认提示"></a>
+            <figcaption>确认添加。</figcaption>
+          </figure>
+          <figure class="fig" style="--figw:1600px">
+            <a class="zoom" href="assets/shot-23.webp"><img src="assets/shot-23.webp" width="1600" height="514" loading="lazy" decoding="async" alt="自定义域名已绑定的列表状态"></a>
+            <figcaption>域名状态变成「有效 / Active」就可以用了，证书通常几分钟内自动签发。</figcaption>
+          </figure>
+        </div>
+      </article>
+
+      <article class="step" id="step-11">
+        <div class="step-no">11</div>
+        <div class="step-body">
+          <div class="step-head"><h3>打开域名，确认 Worker 活了</h3></div>
+          <p>浏览器直接访问你绑定的域名（或 <code class="inline">xxx.workers.dev</code>），能看到一段 JSON 就说明 Worker 已经跑起来。</p>
+          <figure class="fig" style="--figw:1600px">
+            <a class="zoom" href="assets/shot-24.webp"><img src="assets/shot-24.webp" width="1600" height="240" loading="lazy" decoding="async" alt="浏览器地址栏里访问 Worker 自定义域名"></a>
+            <figcaption>在地址栏输入域名。</figcaption>
+          </figure>
+          <figure class="fig" style="--figw:1384px">
+            <a class="zoom" href="assets/shot-25.webp"><img src="assets/shot-25.webp" width="1384" height="907" loading="lazy" decoding="async" alt="Worker 根路径返回的 JSON 信息"></a>
+            <figcaption>返回 JSON（含 <code class="inline">ok: true</code> 与 <code class="inline">subscription_base</code>）表示部署成功。</figcaption>
+          </figure>
+          <div class="warn">
+            <span class="ico" aria-hidden="true">⚠️</span>
+            <div><p>如果这里报 500，或者提示 <code class="inline">TOKEN is not configured</code> / <code class="inline">SUBS</code> 之类，回头看第三部分：变量名是不是全大写、KV 有没有绑上、改完有没有重新部署。</p></div>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <!-- ================= 五 ================= -->
+    <section class="part" id="part-5">
+      <h2><span class="part-no">第五部分</span>把域名和 TOKEN 填回生成器</h2>
+      <p class="part-sub">回到第 ⑧ 块，把刚才拿到的东西填进 ② 和 ③。</p>
+
+      <article class="step" id="step-12">
+        <div class="step-no">12</div>
+        <div class="step-body">
+          <div class="step-head"><h3>填写订阅域名与订阅密钥</h3></div>
+          <p>回到 <a href="https://sbm.1733.dpdns.org/" target="_blank" rel="noopener">https://sbm.1733.dpdns.org/</a> 的第 ⑧ 块订阅设置：</p>
+          <ul>
+            <li><b>① 启用订阅</b>：选「启用 Worker 固定订阅」；</li>
+            <li><b>② 订阅域名</b>：填 Worker 的完整地址，带 <code class="inline">https://</code>，例如 <code class="inline">https://subtest.1733.dpdns.org</code>；</li>
+            <li><b>③ 订阅密钥</b>：粘贴那串 TOKEN，直到通过校验、边框变绿。</li>
+          </ul>
+          <figure class="fig" style="--figw:681px">
+            <a class="zoom" href="assets/shot-26.webp"><img src="assets/shot-26.webp" width="681" height="274" loading="lazy" decoding="async" alt="订阅设置里填好了订阅域名和订阅密钥"></a>
+            <figcaption>两项都填好后，页面下方生成的 SSH 命令会自动带上 <code class="inline">sub_mode='worker'</code>。</figcaption>
+          </figure>
+        </div>
+      </article>
+    </section>
+
+    <!-- ================= 六 ================= -->
+    <section class="part" id="part-6">
+      <h2><span class="part-no">第六部分</span>在服务器上执行安装命令</h2>
+      <p class="part-sub">这一步最容易翻车：命令不能直接往终端对话框里粘。</p>
+
+      <article class="step" id="step-13">
+        <div class="step-no">13</div>
+        <div class="step-body">
+          <div class="step-head"><h3>用「命令编辑器」粘贴并执行</h3></div>
+          <p>生成的命令是多行、带续行符的，直接粘到 SSH 对话框的输入行里会被截断或提前执行。正确做法是打开面板下方的<b>「命令编辑器」</b>，把命令整段粘进编辑框，再点「发送」到当前会话。</p>
+          <figure class="fig" style="--figw:1268px">
+            <a class="zoom" href="assets/shot-27.webp"><img src="assets/shot-27.webp" width="1268" height="882" loading="lazy" decoding="async" alt="SSH 工具的界面，右下角是命令编辑器，里面粘好了带 sub_domain 与 sub_token 的安装命令"></a>
+            <figcaption>命令粘到右下角的「命令编辑器」，而不是上面那个终端对话框。</figcaption>
+          </figure>
+          <p>命令的结构大致是这样（<b>以生成器实际生成的为准</b>，这里只是示意）：</p>
+          <div class="code-wrap">
+            <pre><code>sub='1' \
+sub_mode='worker' \
+sub_domain='https://你的Worker域名' \
+sub_token='你的TOKEN' \
+bash &lt;(curl -fsSL https://github.com/famintt/Singbox-Manager/releases/latest/download/install.sh 2&gt;/dev/null || wget -qO- https://github.com/famintt/Singbox-Manager/releases/latest/download/install.sh) rep</code></pre>
+          </div>
+          <div class="note">
+            <span class="ico" aria-hidden="true">💡</span>
+            <div><p>装完之后要让它上报一次，订阅里才会有节点。执行 <code class="inline">sbm sub status</code> 可以查看当前订阅状态，<code class="inline">sbm sub url</code> 会打印本机订阅地址。</p></div>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <!-- ================= 七 ================= -->
+    <section class="part" id="part-7">
+      <h2><span class="part-no">第七部分</span>客户端导入固定订阅</h2>
+      <p class="part-sub">到这里只剩最后一步：把地址填进客户端。</p>
+
+      <article class="step" id="step-14">
+        <div class="step-no">14</div>
+        <div class="step-body">
+          <div class="step-head"><h3>在客户端里添加订阅链接</h3></div>
+          <p>订阅地址的格式是 <code class="inline">https://你的域名/sub/all/&lt;TOKEN&gt;</code>，多台机器会合并成一条订阅。例如：</p>
+          <div class="code-wrap">
+            <pre><code>https://subtest.1733.dpdns.org/sub/all/bc7a291e-0ce9-479f-82c0-b9f749bfc658</code></pre>
+          </div>
+
+          <p>把这个地址填进客户端（v2rayN / Clash / Mihomo / sing-box 都行），导入后就能看到节点。想只要单台机器的节点，用 <code class="inline">/sub/&lt;machine&gt;/&lt;TOKEN&gt;</code>。</p>
+
+          <div class="cards">
+            <div class="card"><b>自动识别格式</b>客户端会按 User-Agent 自动返回 base64 / Clash / sing-box，不用手动管。</div>
+            <div class="card"><b>强制指定格式</b>地址后加 <code class="inline">?format=clash</code>、<code class="inline">?format=singbox</code>、<code class="inline">?format=base64</code>。</div>
+            <div class="card"><b>网页管理</b>访问 <code class="inline">https://你的域名/ui/&lt;TOKEN&gt;</code> 可改名、排序、增删节点。</div>
+          </div>
+
+          <div class="tip">
+            <span class="ico" aria-hidden="true">🎉</span>
+            <div><p><b>大功告成。</b>这个地址从此不会变——机器重装、隧道重启、换 IP 都不影响，客户端只用这一条。</p></div>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <!-- ================= FAQ ================= -->
+    <section class="part" id="faq">
+      <h2><span class="part-no">排错</span>常见问题</h2>
+      <p class="part-sub">90% 的问题都出在「名字写错」和「改完没重新部署」上。</p>
+
+      <details class="faq" id="faq-1">
+        <summary>打开域名报 500，怎么办？</summary>
+        <div class="faq-body">
+          <p>按顺序检查三件事：</p>
+          <ul>
+            <li>KV 绑定的<b>变量名字</b>是不是 <code class="inline">SUBS</code>，全大写；</li>
+            <li><code class="inline">TOKEN</code> 是否已经加进「变量与机密」，且类型是密钥；</li>
+            <li>改完之后有没有<b>重新点「部署」</b>。</li>
+          </ul>
+          <p>都对了还是不行，进 Worker 的「日志 / Logs」看一眼实时报错，通常会直接写 <code class="inline">missing config: SUBS</code> 之类。</p>
+        </div>
+      </details>
+
+      <details class="faq" id="faq-2">
+        <summary>订阅导入成功，但里面没有节点？</summary>
+        <div class="faq-body">
+          <p>说明 Worker 通了，但服务器还没上报。回到装好 sbm 的机器上执行一次上报（或直接跑一遍生成器给的命令），然后用 <code class="inline">sbm sub status</code> 确认状态为已上报。</p>
+          <p>另外确认地址用的是 <code class="inline">/sub/all/&lt;TOKEN&gt;</code>（合并）还是 <code class="inline">/sub/&lt;machine&gt;/&lt;TOKEN&gt;</code>（单机），machine 名字写错也会拿到空列表。</p>
+        </div>
+      </details>
+
+      <details class="faq" id="faq-3">
+        <summary>TOKEN 用什么格式最好？</summary>
+        <div class="faq-body">
+          <p>推荐 UUID v4，或者 32 字节的随机串。避免在 token 里放空格、引号、<code class="inline">/</code>、<code class="inline">?</code>、<code class="inline">#</code>、<code class="inline">&amp;</code>、<code class="inline">%</code>、<code class="inline">+</code>、<code class="inline">=</code>——放进 URL 路径需要二次编码，容易出现「看起来一样的 token 却匹配不上」。</p>
+          <p>Worker 对 TOKEN 是逐字符比较：区分大小写、不会自动去空格。</p>
+        </div>
+      </details>
+
+      <details class="faq" id="faq-4">
+        <summary>不绑定自定义域名可以吗？</summary>
+        <div class="faq-body">
+          <p>完全可以。Worker 建好自带一个 <code class="inline">https://&lt;worker名&gt;.&lt;子域&gt;.workers.dev</code> 地址，直接把这一串填进生成器的「订阅域名」即可，第四部分整章都可以跳过。</p>
+        </div>
+      </details>
+
+      <details class="faq" id="faq-5">
+        <summary>想改节点名字、调顺序怎么办？</summary>
+        <div class="faq-body">
+          <p>访问 <code class="inline">https://你的域名/ui/&lt;TOKEN&gt;</code> 打开网页管理界面，可以修改节点链接与显示名称、上移下移机器和节点顺序、增删节点。手动保存后，机器继续自动上报也不会覆盖你的改动；点「恢复自动上报」可以回到自动内容。</p>
+        </div>
+      </details>
+
+      <details class="faq" id="faq-6">
+        <summary>生成器里两项留空会怎样？</summary>
+        <div class="faq-body">
+          <p>两项都留空就退回原来的临时订阅模式（走 cloudflared 隧道），一切照旧。只有域名和 TOKEN <b>都填了</b>才会启用 Worker 固定订阅。</p>
+        </div>
+      </details>
+
+      <details class="faq" id="faq-7">
+        <summary>免费额度够用吗？会不会突然收费？</summary>
+        <div class="faq-body">
+          <p>Workers 免费版每天 10 万次请求、KV 免费版每天 10 万次读 / 1000 次写，个人订阅场景远远够用。只要不升级到付费套餐就不会产生费用。</p>
+        </div>
+      </details>
+    </section>
+
+    <div class="foot">
+      <span>本教程适用于 <a href="https://github.com/famintt/Singbox-Manager" target="_blank" rel="noopener">famintt/Singbox-Manager</a> 与 <a href="https://github.com/famintt/sub-worker" target="_blank" rel="noopener">famintt/sub-worker</a>，仅供学习交流。</span>
+      <span><a href="#top">回到顶部 ↑</a></span>
+    </div>
+  </main>
+</div>
+
+<div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="查看大图">
+  <button class="close" type="button" aria-label="关闭">✕</button>
+  <img alt="" />
+  <span class="hint">点击任意位置或按 Esc 关闭</span>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var root = document.documentElement;
+
+  /* ---------- theme ---------- */
+  var btn = document.getElementById('theme-btn');
+  var stored = null;
+  try { stored = localStorage.getItem('sbm-guide-theme'); } catch (e) {}
+  if (stored === 'dark' || stored === 'light') root.setAttribute('data-theme', stored);
+  function isDark() {
+    var t = root.getAttribute('data-theme');
+    if (t) return t === 'dark';
+    return !window.matchMedia('(prefers-color-scheme: light)').matches;
+  }
+  function syncBtn() { btn.textContent = isDark() ? '☀️' : '🌙'; }
+  syncBtn();
+  btn.addEventListener('click', function () {
+    var next = isDark() ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    try { localStorage.setItem('sbm-guide-theme', next); } catch (e) {}
+    syncBtn();
+  });
+
+  /* ---------- scroll progress ---------- */
+  var bar = document.getElementById('progress-bar');
+  function onScroll() {
+    var h = document.documentElement.scrollHeight - window.innerHeight;
+    var p = h > 0 ? (window.scrollY / h) * 100 : 0;
+    bar.style.width = Math.min(100, Math.max(0, p)) + '%';
+  }
+  onScroll();
+  window.addEventListener('scroll', onScroll, { passive: true });
+  window.addEventListener('resize', onScroll);
+
+  /* ---------- toc scroll spy ---------- */
+  var links = Array.prototype.slice.call(document.querySelectorAll('#toc-list a'));
+  var targets = links.map(function (a) { return document.querySelector(a.getAttribute('href')); }).filter(Boolean);
+  var spyRaf = 0;
+  function spy() {
+    spyRaf = 0;
+    if (!targets.length) return;
+    var probe = window.scrollY + 120;
+    var current = targets[0].id;
+    for (var i = 0; i < targets.length; i++) {
+      if (targets[i].getBoundingClientRect().top + window.scrollY <= probe) current = targets[i].id;
+    }
+    if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4) {
+      current = targets[targets.length - 1].id;
+    }
+    links.forEach(function (a) {
+      a.classList.toggle('active', a.getAttribute('href') === '#' + current);
+    });
+  }
+  function queueSpy() { if (!spyRaf) spyRaf = requestAnimationFrame(spy); }
+  spy();
+  window.addEventListener('scroll', queueSpy, { passive: true });
+  window.addEventListener('resize', queueSpy);
+  window.addEventListener('hashchange', queueSpy);
+
+  /* ---------- copy buttons ---------- */
+  document.querySelectorAll('.code-wrap > pre').forEach(function (pre) {
+    var wrap = pre.parentNode;
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'copy-btn';
+    b.textContent = '复制';
+    b.addEventListener('click', function () {
+      var text = pre.innerText;
+      var done = function () {
+        b.textContent = '已复制';
+        b.classList.add('done');
+        setTimeout(function () { b.textContent = '复制'; b.classList.remove('done'); }, 1600);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, function () { fallback(text, done); });
+      } else {
+        fallback(text, done);
+      }
+    });
+    wrap.appendChild(b);
+  });
+  function fallback(text, done) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); done(); } catch (e) {}
+    document.body.removeChild(ta);
+  }
+
+  /* ---------- lightbox ---------- */
+  var lb = document.getElementById('lightbox');
+  var lbImg = lb.querySelector('img');
+  function open(src, alt) {
+    lbImg.src = src;
+    lbImg.alt = alt || '';
+    lb.classList.add('on');
+    document.body.style.overflow = 'hidden';
+  }
+  function close() {
+    lb.classList.remove('on');
+    lbImg.removeAttribute('src');
+    document.body.style.overflow = '';
+  }
+  document.querySelectorAll('.fig .zoom').forEach(function (a) {
+    a.addEventListener('click', function (ev) {
+      ev.preventDefault();
+      var img = a.querySelector('img');
+      open(a.getAttribute('href'), img ? img.alt : '');
+    });
+  });
+  lb.addEventListener('click', function (ev) {
+    if (ev.target === lbImg) return;
+    close();
+  });
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape' && lb.classList.contains('on')) close();
+  });
+})();
+</script>
+</body>
+</html>
