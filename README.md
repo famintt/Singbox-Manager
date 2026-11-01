@@ -118,9 +118,11 @@ sbm un        卸载
 
 分享链接默认使用 IPv4；菜单「9. 全局设置」可切换 `v4 / v6 / auto`（仅双栈机器需要调整）。
 
-## 订阅设置（v1.9.2）
+## 订阅设置（v1.9.6）
 
 推荐使用固定 Worker 订阅：管理器生成全部节点链接的 base64，上报到 [sub-worker](https://github.com/famintt/sub-worker)，客户端使用固定域名；服务器重启后订阅 URL 不变。
+
+管理器以 `sub/links.txt` 明文节点列表作为唯一变化判断源；该文件内容未变化时不会重复上报，`<token>.txt` 只是派生的 base64 上传缓存。
 
 ```bash
 sub=1 \

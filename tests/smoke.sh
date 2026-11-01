@@ -66,8 +66,8 @@ esac
 # shellcheck source=../sb.sh
 source "${ROOT_DIR}/sb.sh"
 
-# --- v1.9.5 主线命名与版本 ---
-assert_eq "VERSION 稳定版 1.9.5" "v1.9.5" "$(tr -d "\r\n" < "${ROOT_DIR}/VERSION")"
+# --- v1.9.6 订阅上报变化检测 ---
+assert_eq "VERSION 稳定版 1.9.6" "v1.9.6" "$(tr -d "\r\n" < "${ROOT_DIR}/VERSION")"
 assert_eval_true "UI 使用 VLESS+Vision+Reality 标签" 'grep -q "VLESS+Vision+Reality" "${ROOT_DIR}/interface/index.html"'
 assert_eval_true "UI 使用 VLESS+XUDP+Reality 标签" 'grep -q "VLESS+XUDP+Reality" "${ROOT_DIR}/interface/index.html"'
 assert_eval_false "UI 不再暴露 XUDP 安全层选项" 'grep -q "vx_security" "${ROOT_DIR}/interface/index.html"'
@@ -403,6 +403,8 @@ assert_eval_false "sub 默认关闭" 'unset sub; unset sub_enabled; sub_enabled'
 assert_eval_true "sub token 为 32 位 hex" '[[ "$(sub_token)" =~ ^[0-9a-f]{32}$ ]]'
 assert_eval_true "sub 订阅文件可生成" 'sub_build_file'
 assert_eval_true "sub 内容可 base64 解出节点链接" 'base64 -d <"$(sub_file)" | grep -q "^vless://"'
+assert_eval_true "sub links.txt 是明文主文件" '[ -s "$(sub_links_file)" ] && grep -q "^vless://" "$(sub_links_file)"'
+assert_eval_true "sub base64 内容与 links.txt 一致" 'base64 -d <"$(sub_file)" | cmp -s - "$(sub_links_file)"'
 assert_eq "sub_mode 默认 temp" "temp" "$(unset -v sub_mode; sub_mode)"
 assert_eq "sub_mode worker" "worker" "$(sub_mode=worker; sub_mode)"
 assert_eq "sub_worker_base 补 https" "https://sub.example.com" "$(sub_domain=sub.example.com; sub_worker_base)"

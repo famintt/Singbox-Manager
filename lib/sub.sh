@@ -70,7 +70,7 @@ sub_content_hash() {
 
 # 上报到 sub-worker；成功时写入固定订阅链接。
 sub_report() {
-  local base token machine file url header_file response_file status hash
+  local base token machine file url header_file response_file status hash links_hash
   base="$(sub_worker_base)" || {
     print_err "订阅设置缺少域名（sub_domain）。"
     return 1
@@ -111,11 +111,13 @@ sub_report() {
   fi
 
   hash="$(sub_content_hash "${file}" 2>/dev/null || true)"
+  links_hash="$(sub_content_hash "$(sub_links_file)" 2>/dev/null || true)"
   url="${base}/sub/${machine}/$(url_encode "${token}")"
   printf '%s\n' "${url}" >"$(sub_url_file)"
   chmod 600 "$(sub_url_file)"
   set_setting "sub_url" "${url}" || true
   set_setting "sub_hash" "${hash}" || true
+  set_setting "sub_links_hash" "${links_hash}" || true
   set_setting "sub_machine" "${machine}" || true
   rm -f "${header_file}" "${response_file}"
   print_ok "订阅已上报：${url}"
@@ -151,6 +153,11 @@ sub_token() {
 
 sub_file() {
   printf '%s/%s.txt' "$(sub_dir)" "$(sub_token)"
+}
+
+# 明文节点链接是订阅的唯一可信源；<token>.txt 只是由它派生出的 base64 上传体。
+sub_links_file() {
+  printf '%s/links.txt' "$(sub_dir)"
 }
 
 # 生成订阅内容：节点链接一行一个，再整体 base64（订阅客户端标准格式）。
@@ -340,9 +347,11 @@ ensure_sub() {
   sub_enabled || return 0
   sub_build_file || print_warn "订阅内容生成失败（可能暂无节点）。"
   if [ "$(sub_mode)" = "worker" ]; then
-    local hash
-    hash="$(sub_content_hash "$(sub_file)" 2>/dev/null || true)"
-    if [ ! -s "$(sub_url_file)" ] || [ "${hash}" != "$(get_setting "sub_hash" "")" ]; then
+    local links_hash
+    links_hash="$(sub_content_hash "$(sub_links_file)" 2>/dev/null || true)"
+    # 以 links.txt（明文节点列表）为唯一变化判断源；内容没变就不产生任何上报。
+    # 首次安装或上次上报失败时没有 sub_links_hash，会强制补报一次。
+    if [ ! -s "$(sub_url_file)" ] || [ -z "${links_hash}" ] || [ "${links_hash}" != "$(get_setting "sub_links_hash" "")" ]; then
       sub_report || return 1
     fi
     return 0
