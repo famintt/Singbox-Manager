@@ -561,10 +561,18 @@ auto_install() {
   ENV_NAME="$(env_var "name")"
   ENV_UUID="$(env_var "uuid")"
   ENV_PASSWD="$(env_var "passwd")"
-  # 域名类环境变量经白名单校验，非法值回退内置默认
+  # 域名类环境变量经白名单校验，非法值回退内置默认。
+  # Reality SNI 探测（detect_sni_best，串行探测 ~30 个候选域名）仅在确有 Reality 节点时
+  # 执行：此前每次 rep/ins 都无条件探测（最坏数分钟且无输出），在受限出网/NAT 机上
+  # 会撑爆 SSH 空闲窗口被掐断，也让无 Reality 的部署白白等待。
   ENV_VL_SNI_RAW="$(env_var "vl_sni")"
   if [ -z "${ENV_VL_SNI_RAW}" ] || [ "${ENV_VL_SNI_RAW,,}" = "auto" ]; then
-    ENV_VL_SNI="$(detect_sni_best 2>/dev/null || printf '%s' "${DEFAULT_REALITY_SERVER}")"
+    if printf '%s\n' "${specs[@]}" | grep -q '^vless-reality '; then
+      print_info "正在探测 Reality SNI（TLS 1.3 + HTTP/2，通常 10-60 秒）..."
+      ENV_VL_SNI="$(detect_sni_best 2>/dev/null || printf '%s' "${DEFAULT_REALITY_SERVER}")"
+    else
+      ENV_VL_SNI="${DEFAULT_REALITY_SERVER}"
+    fi
   else
     ENV_VL_SNI="$(env_domain_or_default "vl_sni" "${DEFAULT_REALITY_SERVER}")"
   fi
@@ -609,61 +617,62 @@ auto_install() {
     fi
   done
 
+  local -a added_specs=()
   for line in "${specs[@]}"; do
     port="${line##* }"
     case "${line%% *}" in
     vless-reality)
       if auto_try_port "$port" "VLESS-Reality"; then
-        auto_add_vless_reality "$port" && added=$((added + 1)) || failed=$((failed + 1))
+        auto_add_vless_reality "$port" && added=$((added + 1)) && added_specs+=("$line") || failed=$((failed + 1))
       else
         failed=$((failed + 1))
       fi
       ;;
     vless-ws-tls)
       if auto_try_port "$port" "VLESS-WS-TLS"; then
-        auto_add_vless_ws_tls "$port" && added=$((added + 1)) || failed=$((failed + 1))
+        auto_add_vless_ws_tls "$port" && added=$((added + 1)) && added_specs+=("$line") || failed=$((failed + 1))
       else
         failed=$((failed + 1))
       fi
       ;;
     anytls)
       if auto_try_port "$port" "AnyTLS"; then
-        auto_add_anytls "$port" && added=$((added + 1)) || failed=$((failed + 1))
+        auto_add_anytls "$port" && added=$((added + 1)) && added_specs+=("$line") || failed=$((failed + 1))
       else
         failed=$((failed + 1))
       fi
       ;;
     vless-xudp)
       if auto_try_port "$port" "VLESS-XUDP"; then
-        auto_add_vless_xudp "$port" && added=$((added + 1)) || failed=$((failed + 1))
+        auto_add_vless_xudp "$port" && added=$((added + 1)) && added_specs+=("$line") || failed=$((failed + 1))
       else
         failed=$((failed + 1))
       fi
       ;;
     vless-argo)
       if auto_try_port "$port" "VLESS-Argo"; then
-        auto_add_vless_argo "$port" && added=$((added + 1)) || failed=$((failed + 1))
+        auto_add_vless_argo "$port" && added=$((added + 1)) && added_specs+=("$line") || failed=$((failed + 1))
       else
         failed=$((failed + 1))
       fi
       ;;
     tuic-v5)
       if auto_try_port "$port" "TUIC-v5"; then
-        auto_add_tuic_v5 "$port" && added=$((added + 1)) || failed=$((failed + 1))
+        auto_add_tuic_v5 "$port" && added=$((added + 1)) && added_specs+=("$line") || failed=$((failed + 1))
       else
         failed=$((failed + 1))
       fi
       ;;
     hy2)
       if auto_try_port "$port" "Hysteria2"; then
-        auto_add_hy2 "$port" && added=$((added + 1)) || failed=$((failed + 1))
+        auto_add_hy2 "$port" && added=$((added + 1)) && added_specs+=("$line") || failed=$((failed + 1))
       else
         failed=$((failed + 1))
       fi
       ;;
     socks5)
       if auto_try_port "$port" "SOCKS5"; then
-        auto_add_socks5 "$port" && added=$((added + 1)) || failed=$((failed + 1))
+        auto_add_socks5 "$port" && added=$((added + 1)) && added_specs+=("$line") || failed=$((failed + 1))
       else
         failed=$((failed + 1))
       fi
@@ -693,6 +702,13 @@ auto_install() {
   reload_service
   # 事务已提交：清除回滚标记，此后失败不再触发整事务回滚
   _AUTO_ROLLBACK_DIR=""
+  # v1.9.7：自动放行节点端口（Oracle 官方镜像 iptables 默认 REJECT 入站，
+  # 节点装好却外网不可达）。best-effort；auto_fw=0/off/no 关闭。
+  # 仅放行实际写入成功的节点端口——被占用跳过的端口不动别人的服务
+  case "$(env_var "auto_fw")" in
+  0 | off | no | false) ;;
+  *) [ "${#added_specs[@]}" -gt 0 ] && fw_auto_open_specs "${added_specs[@]}" ;;
+  esac
   # 隧道启动失败（如临时域名等待超时）不应判定整次安装失败
   restart_all_argo_nodes || print_warn "部分 Argo 隧道启动失败，稍后可用 sbm list 重查域名。"
   cleanup_unused_cloudflared || true

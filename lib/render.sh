@@ -101,11 +101,88 @@ clash_api_enabled() {
   esac
 }
 
+# 端口占用进程名（root 下 ss -p 可取）；取不到或无占用返回空串
+port_owner_name() {
+  local port="$1" line
+  command_exists ss || { printf ''; return 0; }
+  line="$(ss -tlnpH 2>/dev/null | grep -E "[:.]${port}[[:space:]]" | head -n 1 || true)"
+  sed -n 's/.*users:((\"\([^\"]*\)\".*/\1/p' <<<"${line}"
+}
+
+# 挑一个空闲的 clash api 端口：默认 19990，被占时在 20000-39999 随机试 20 次
+pick_free_clash_port() {
+  local p n=0
+  if ! system_has_port "19990" && ! metadata_has_port "19990"; then
+    printf '19990'
+    return 0
+  fi
+  while [ "${n}" -lt 20 ]; do
+    p=$(( (RANDOM * 32768 + RANDOM) % 20000 + 20000 ))
+    if ! system_has_port "${p}" && ! metadata_has_port "${p}"; then
+      printf '%s' "${p}"
+      return 0
+    fi
+    n=$((n + 1))
+  done
+  printf '19990'
+}
+
 clash_api_port() {
-  local p
-  p="$(manager_env_or_setting "clash_api_port" "19990")"
-  [[ "${p}" =~ ^[0-9]+$ ]] && [ "${p}" -ge 1 ] && [ "${p}" -le 65535 ] || p="19990"
-  printf '%s' "${p}"
+  local p owner explicit running_ctl running_port
+  # rep 流程里本机 sing-box 刚被停止、端口刚释放，进程级端口缓存已过期，必须重取
+  invalidate_port_caches
+  # 运行中的 sing-box 实际监听的 controller 端口是最高优先级事实：
+  # 本函数还会被 status/连接摘要等只读路径调用（无渲染），此时绝不能与运行实例漂移，
+  # 也不能在只读路径里顺手改写 settings（否则 config/settings/runtime 三方不一致）
+  running_ctl="$(jq -r '.experimental.clash_api.external_controller // empty' "${CONFIG_FILE}" 2>/dev/null || true)"
+  running_port="${running_ctl##*:}"
+  if [ -n "${running_port}" ] && [[ "${running_port}" =~ ^[0-9]+$ ]] && system_has_port "${running_port}" \
+    && [ "$(port_owner_name "${running_port}")" = "sing-box" ]; then
+    printf '%s' "${running_port}"
+    return 0
+  fi
+  explicit="$(env_var "clash_api_port")"
+  # 显式指定的环境变量优先且完全尊重用户输入（占用冲突只提示不擅改）
+  if [ -z "${explicit}" ]; then
+    p="$(get_setting "clash_api_port")"
+  else
+    p="${explicit}"
+  fi
+  if [ -n "${p}" ]; then
+    if ! [[ "${p}" =~ ^[0-9]+$ ]] || [ "${p}" -lt 1 ] || [ "${p}" -gt 65535 ]; then
+      p="19990"
+    fi
+    if system_has_port "${p}"; then
+      owner="$(port_owner_name "${p}")"
+      if [ "${owner}" = "sing-box" ]; then
+        printf '%s' "${p}"
+        return 0
+      fi
+      if [ -n "${explicit}" ]; then
+        print_warn "clash api 端口 ${p}（clash_api_port 显式指定）被 ${owner:-其他进程} 占用，sing-box 可能启动失败。"
+        printf '%s' "${p}"
+        return 0
+      fi
+      # 历史持久化端口被其他服务抢占（实测：mm/mihomo 的 clash api 同样默认 19990，
+      # 同机共存会让 sing-box 因 external controller 绑定失败无限重启）——自动换口并重新持久化
+      local picked
+      picked="$(pick_free_clash_port)"
+      set_setting "clash_api_port" "${picked}" || true
+      print_warn "clash api 端口 ${p} 被 ${owner:-其他进程} 占用，已自动改用 ${picked}。"
+      printf '%s' "${picked}"
+      return 0
+    fi
+    printf '%s' "${p}"
+    return 0
+  fi
+  # 从未配置：默认 19990；被占时自动换口并持久化，避免同机 mihomo/mm 冲突导致启动失败
+  local picked
+  picked="$(pick_free_clash_port)"
+  set_setting "clash_api_port" "${picked}" || true
+  if [ "${picked}" != "19990" ]; then
+    print_warn "默认 clash api 端口 19990 已被占用，clash api 自动改用 ${picked}。"
+  fi
+  printf '%s' "${picked}"
 }
 
 ensure_clash_api_secret() {

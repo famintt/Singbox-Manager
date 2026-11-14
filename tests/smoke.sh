@@ -66,8 +66,8 @@ esac
 # shellcheck source=../sb.sh
 source "${ROOT_DIR}/sb.sh"
 
-# --- v1.9.6 订阅上报变化检测 ---
-assert_eq "VERSION 稳定版 1.9.6" "v1.9.6" "$(tr -d "\r\n" < "${ROOT_DIR}/VERSION")"
+# --- v1.9.7 订阅上报变化检测 ---
+assert_eq "VERSION 稳定版 1.9.7" "v1.9.7" "$(tr -d "\r\n" < "${ROOT_DIR}/VERSION")"
 assert_eval_true "UI 使用 VLESS+Vision+Reality 标签" 'grep -q "VLESS+Vision+Reality" "${ROOT_DIR}/interface/index.html"'
 assert_eval_true "UI 使用 VLESS+XUDP+Reality 标签" 'grep -q "VLESS+XUDP+Reality" "${ROOT_DIR}/interface/index.html"'
 assert_eval_false "UI 不再暴露 XUDP 安全层选项" 'grep -q "vx_security" "${ROOT_DIR}/interface/index.html"'
@@ -128,6 +128,12 @@ assert_eq "auto_collect_specs 收集 vxpt" "vless-xudp 5444" "$(vxpt=5444 auto_c
 assert_eval_true "auto_argo_requested vlpt" 'argo=vlpt; auto_argo_requested'
 assert_eval_false "auto_argo_requested trpt" 'argo=trpt; auto_argo_requested'
 assert_eval_false "auto_argo_requested 未设置" 'unset argo; auto_argo_requested'
+assert_eval_true "auto_argo_requested 数字端口" 'argo=23456; auto_argo_requested'
+assert_eq "auto_argo_local_port 数字端口" "23456" "$(argo=23456; auto_argo_local_port)"
+assert_eq "auto_argo_local_port argo_pt 回退" "23457" "$(argo=vlpt argo_pt=23457; auto_argo_local_port)"
+assert_eval_false "auto_argo_local_port 非法 argo_pt" 'argo=vlpt argo_pt=abc; auto_argo_local_port'
+assert_eq "fw_proto_for_node reality" "tcp" "$(fw_proto_for_node vless-reality)"
+assert_eq "fw_proto_for_node hy2" "udp" "$(fw_proto_for_node hy2)"
 assert_eval_true "auto_positive_or_default 合法" 'up_mbps=500; [ "$(auto_positive_or_default up_mbps 200)" = "500" ]'
 assert_eval_true "auto_positive_or_default 非法回退" 'up_mbps=abc; [ "$(auto_positive_or_default up_mbps 200)" = "200" ]'
 
@@ -223,6 +229,24 @@ assert_eval_false "clash_api=0 关闭" 'clash_api=0 clash_api_enabled'
 assert_eval_false "clash_api=off 关闭" 'clash_api=off clash_api_enabled'
 assert_eq "clash_api_port 默认 19990" "19990" "$(clash_api_port)"
 assert_eq "clash_api_port 非法回退默认" "19990" "$(clash_api_port=abc clash_api_port)"
+assert_eval_true "clash_api_port 占用时自动换口" '
+  (
+    system_has_port() { [ "$1" = 19990 ]; }
+    metadata_has_port() { return 1; }
+    port_owner_name() { [ "$1" = 19990 ] && printf mihomo; }
+    set_setting() { :; }
+    p="$(clash_api_port)"
+    [ "$p" -ge 20000 ] && [ "$p" -le 39999 ]
+  )'
+assert_eval_true "clash_api_port 显式指定不被改写" '
+  (
+    system_has_port() { [ "$1" = 19990 ]; }
+    metadata_has_port() { return 1; }
+    port_owner_name() { printf mihomo; }
+    set_setting() { :; }
+    clash_api_port=19990
+    [ "$(clash_api_port)" = "19990" ]
+  )'
 assert_eval_true "clash_api_secret 生成并持久化" '
   s1="$(ensure_clash_api_secret)"
   s2="$(ensure_clash_api_secret)"

@@ -41,11 +41,8 @@ auto_collect_specs() {
     printf '%s %s\n' "${proto}" "${port}"
   done
   if auto_argo_requested; then
-    raw="$(env_var "argo_pt")"
-    if [ -z "${raw}" ]; then
-      port=8001
-    elif ! port="$(env_port "argo_pt")"; then
-      print_err "环境变量 argo_pt=${raw} 不是有效端口。"
+    if ! port="$(auto_argo_local_port)"; then
+      print_err "环境变量 argo_pt=$(env_var "argo_pt") 不是有效端口。"
       return 1
     fi
     printf '%s %s\n' "vless-argo" "${port}"
@@ -58,13 +55,41 @@ auto_save_node() {
   local secret_json="$3"
   save_node_bundle "$tag" "$node_json" "$secret_json"
 }
+# argo 环境变量语义：
+#   vlpt/vless/true/1/yes → 启用（本地端口取 argo_pt，默认 8001）
+#   2-65535 的数字        → 启用且该数字即本地端口（v1.9.6 及此前数字被静默忽略，
+#                            纯 Argo 部署会直接报"未检测到有效端口"中止；1 保留为真值语义）
 auto_argo_requested() {
   local v
   v="$(env_var "argo")"
   case "${v,,}" in
   vlpt | vless | true | 1 | yes) return 0 ;;
-  *) return 1 ;;
+  *)
+    if [[ "${v}" =~ ^[0-9]+$ ]] && [ "${v}" -ge 2 ] && [ "${v}" -le 65535 ]; then
+      return 0
+    fi
+    return 1
+    ;;
   esac
+}
+
+# Argo 本地端口：argo 环境变量为 2-65535 数字时用之；否则 argo_pt；默认 8001
+auto_argo_local_port() {
+  local v
+  v="$(env_var "argo")"
+  if [[ "${v}" =~ ^[0-9]+$ ]] && [ "${v}" -ge 2 ] && [ "${v}" -le 65535 ]; then
+    printf '%s' "${v}"
+    return 0
+  fi
+  v="$(env_var "argo_pt")"
+  if [ -n "${v}" ]; then
+    if ! [[ "${v}" =~ ^[0-9]+$ ]] || [ "${v}" -lt 1 ] || [ "${v}" -gt 65535 ]; then
+      return 1
+    fi
+    printf '%s' "${v}"
+    return 0
+  fi
+  printf '8001'
 }
 auto_positive_or_default() {
   local __env_key="$1"
@@ -81,7 +106,9 @@ auto_try_port() {
   local port="$1"
   local label="$2"
   if ! port_available "$port"; then
-    print_warn "端口 ${port} 已被占用，跳过 ${label} 节点。"
+    local owner
+    owner="$(port_owner_name "$port")"
+    print_warn "端口 ${port} 已被占用${owner:+（${owner}）}，跳过 ${label} 节点。"
     return 1
   fi
   return 0

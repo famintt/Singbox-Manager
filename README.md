@@ -30,7 +30,7 @@ vlrt=2083 hypt=2082 name='HK' sbm rep      # 已安装时
 | 变量 | 说明 | 默认 |
 |---|---|---|
 | `vlrt` `vxpt` `wspt` `tupt` `anypt` `hypt` `socks5pt` | 各协议端口，填了即启用（`vxpt`=VLESS+XUDP+Reality） | 不启用 |
-| `argo=vlpt` `argo_pt` | 启用 VLESS-Argo；本地端口 | 8001 |
+| `argo=vlpt` `argo_pt` | 启用 VLESS-Argo；本地端口（`argo` 也可直接填 2-65535 的数字作为本地端口，等价于 `argo=vlpt argo_pt=数字`；`1`/`true` 仍为纯开关语义） | 8001 |
 | `agn` `agk` | Argo 固定隧道域名 + Token（临时隧道留空） | 临时隧道 |
 | `cdn_host` | CDN 中转连接地址（优选 IP/域名），WS-TLS CDN 使用（Argo 也可回退使用） | `saas.sin.fan` |
 | `argo_cdn_host` | **Argo 专属优选域名**，独立于 `cdn_host`（v0.3.3；留空回退 `cdn_host`） | `cdn_host` |
@@ -57,6 +57,7 @@ vlrt=2083 hypt=2082 name='HK' sbm rep      # 已安装时
 | `net_tune_fq_quantum` / `net_tune_fq_initial_quantum` | fq qdisc 参数（默认 18028 / 90140） | jyucoeng 默认值 |
 | `net_tune_tcp_rmem_max` / `net_tune_tcp_wmem_max` | TCP 自动调优上限（默认 32MB） | 33554432 |
 | `net_tune_tcp_limit_output_bytes` | 单次发送配额（默认 4MB） | 4194304 |
+| `auto_fw` | 一键安装后自动放行节点端口（ufw/firewalld/iptables；`/etc/iptables` 存在时顺带持久化 rules.v4）；`0/off/no` 关闭 | 开启 |
 | `sub` | `sub=1` 启用订阅生成；配合 `sub_mode=worker` 上报到 sub-worker | 关闭 |
 | `sub_mode` | 订阅模式：`worker`（固定 Worker，推荐）或 `temp`（临时隧道，兼容旧用法） | `temp` |
 | `sub_domain` | sub-worker 域名，如 `https://sbsub.example.com` | 空 |
@@ -118,7 +119,7 @@ sbm un        卸载
 
 分享链接默认使用 IPv4；菜单「9. 全局设置」可切换 `v4 / v6 / auto`（仅双栈机器需要调整）。
 
-## 订阅设置（v1.9.6）
+## 订阅设置（v1.9.7）
 
 推荐使用固定 Worker 订阅：管理器生成全部节点链接的 base64，上报到 [sub-worker](https://github.com/famintt/sub-worker)，客户端使用固定域名；服务器重启后订阅 URL 不变。
 
@@ -183,6 +184,10 @@ tests/smoke.sh               冒烟测试
 
 ## 说明
 
+- 同机共存与端口冲突（实测 38 台机队两轮验证）：clash api 默认端口 `19990` 被其他服务（如 mm/Mihomo Manager 的 mihomo 内核同样默认 19990）占用时，渲染配置会**自动换口并持久化**到 `settings.json`（显式 `clash_api_port=` 指定时只提示不擅改），sing-box 不再因 external controller 绑定失败无限重启、拖垮全部节点；`sbm doctor` 在服务未运行时输出可操作的原因（占用进程名/最近服务错误日志）
+- 防火墙自动放行（实测 Oracle 官方镜像 iptables 默认 REJECT 入站、节点装好却外网不可达）：一键安装后自动对全部节点端口执行 `ufw allow`/`firewalld`/裸 iptables ACCEPT（幂等，best-effort，失败不影响安装）；`/etc/iptables` 存在时顺带 `iptables-save` 持久化；`auto_fw=0` 关闭；`sbm fw open/close` 与自动放行共用同一实现
+- Reality SNI 探测按需执行：仅当确有 `vless-reality` 节点时才探测（并打印进度提示），无 Reality 的部署不再出现数分钟零输出等待（弱网/NAT 机上的 SSH 空闲超时高发点）
+- `argo=数字端口`（2-65535）直接作为 Argo 本地端口启用节点，此前数字值被静默忽略导致纯 Argo 部署中止安装
 - 稳健性：`rep`/`ins`/`delall` 前自动快照到 `backups/`（保留 10 份，目录含唯一后缀，且一并备份自签证书/私钥），`sbm restore` 一键回滚；`rep` 在"清空已有节点后"至"提交前"任一环节失败都会自动恢复到安装前状态；watchdog 每轮自动对账清理孤儿记录；Argo 临时域名经公共 DNS（DoH，A/AAAA 任一可解析即通过）发布确认后才写入节点；Argo Token 经环境变量传递，不出现在进程命令行
 - 进程识别：service/watchdog 的存活判断与清理全部做 PID→预期二进制的身份校验（`/proc` 可用时），PID 被复用不会导致漏重启或误杀；临时 Argo 隧道日志每次启动截断，避免旧进程残留域名被误解析
 - 交付韧性：sing-box 固定版本 + SHA256（官方 → 本仓库镜像多源回退）；cloudflared 强校验模型——拿不到官方 SHA256 时默认 **fail-closed 拒绝安装**，绝不静默以"版本自报"代替完整性校验；仅当显式设置 `CLOUDFLARED_ALLOW_RUNTIME_VERIFY=1` 才允许降级（弱网机器的明确选择，不推荐用于生产）

@@ -47,10 +47,10 @@ umask 077
 
 REPO_OWNER="famintt"
 REPO_NAME="Singbox-Manager"
-PROJECT_VERSION="v1.9.6"
-PACKAGE_NAME="singbox-manager-v1.9.6.tar.gz"
+PROJECT_VERSION="v1.9.7"
+PACKAGE_NAME="singbox-manager-v1.9.7.tar.gz"
 # 发布流程：scripts/build-release-bundle.sh 构建可复现 bundle，其 SHA256 与此处一致
-PACKAGE_SHA256="417312e68bc72f5ab86b23575109374fa8fc1f87d38a98012e7b7a8eefa73266"
+PACKAGE_SHA256="3ad9e591a402063530f6752f88bd576c4b7ff2a335f685b3562467244f3b1ed3"
 PACKAGE_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${PROJECT_VERSION}/${PACKAGE_NAME}"
 
 INSTALL_BIN="/usr/local/bin/sbm"

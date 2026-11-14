@@ -184,6 +184,34 @@ cli_status() {
   printf '配置: %s\n' "${CONFIG_FILE}"
 }
 
+# 服务未运行时的可操作原因线索：配置校验已通过但启动失败，最高频是端口冲突
+# （实测：clash api 127.0.0.1:19990 被 mm/mihomo 占用 → sing-box external controller
+# 绑定失败无限重启）；其次是端口被其他入站占用。其余给出最近一条服务错误日志。
+doctor_service_failure_hint() {
+  local ctl port owner last
+  ctl="$(jq -r '.experimental.clash_api.external_controller // empty' "${CONFIG_FILE}" 2>/dev/null || true)"
+  port="${ctl##*:}"
+  if [ -n "${port}" ] && [[ "${port}" =~ ^[0-9]+$ ]] && system_has_port "${port}"; then
+    owner="$(port_owner_name "${port}")"
+    if [ -n "${owner}" ] && [ "${owner}" != "sing-box" ]; then
+      print_warn "疑似原因：clash api 端口 ${port} 已被 ${owner} 占用（external_controller=${ctl}）。"
+      print_info "处理：重新执行 sbm rep（自动换口），或先停掉占用方后 sbm restart。"
+      return 0
+    fi
+  fi
+  if systemd_available && command_exists journalctl; then
+    last="$(journalctl -u "${SERVICE_NAME}" --no-pager -n 60 2>/dev/null |
+      grep -E "FATAL|ERROR|Fatal|error" | tail -n 1 || true)"
+    if [ -n "${last}" ]; then
+      print_info "最近服务错误：${last:0:200}"
+      return 0
+    fi
+  fi
+  if [ -s "${LOG_DIR}/stop_reason.log" ]; then
+    print_info "最近停止原因：$(tail -n 1 "${LOG_DIR}/stop_reason.log" | head -c 200)"
+  fi
+}
+
 cli_doctor() {
   local fail=0
   init_storage
@@ -212,7 +240,11 @@ cli_doctor() {
   fi
   case "$(service_state)" in
     *运行中*) print_ok "服务运行中" ;;
-    *) print_err "服务未运行"; fail=1 ;;
+    *)
+      print_err "服务未运行"
+      doctor_service_failure_hint
+      fail=1
+      ;;
   esac
   if [ "${fail}" -eq 0 ]; then
     print_ok "doctor 检查通过"
@@ -255,25 +287,16 @@ cli_fw() {
     open|close)
       [[ "${port}" =~ ^[0-9]+$ ]] || { print_err "缺少有效 --port"; return 2; }
       case "${proto}" in tcp|udp) ;; *) print_err "--proto 仅支持 tcp/udp"; return 2 ;; esac
-      if command -v ufw >/dev/null 2>&1; then
-        if [ "${cmd}" = open ]; then ufw allow "${port}/${proto}"; else ufw delete allow "${port}/${proto}"; fi
-      elif command -v firewall-cmd >/dev/null 2>&1; then
-        if [ "${cmd}" = open ]; then
-          firewall-cmd --add-port="${port}/${proto}" >/dev/null && firewall-cmd --permanent --add-port="${port}/${proto}" >/dev/null
-        else
-          firewall-cmd --remove-port="${port}/${proto}" >/dev/null 2>&1 || true
-          firewall-cmd --permanent --remove-port="${port}/${proto}" >/dev/null 2>&1 || true
+      if fw_apply_port "${cmd}" "${proto}" "${port}"; then
+        # 裸 iptables 路径（ufw/firewalld 都不可用）需提示持久化
+        if ! { command -v ufw >/dev/null 2>&1 && ufw status >/dev/null 2>&1; } &&
+          ! { command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; }; then
+          print_warn "裸 iptables 规则不会自动持久化，请自行保存。"
         fi
-      elif command -v iptables >/dev/null 2>&1; then
-        local -a rule=(-p "${proto}" --dport "${port}" -m comment --comment "sbm_fw" -j ACCEPT)
-        if [ "${cmd}" = open ]; then iptables -C INPUT "${rule[@]}" >/dev/null 2>&1 || iptables -I INPUT "${rule[@]}"
-        else iptables -D INPUT "${rule[@]}" >/dev/null 2>&1 || true
-        fi
-        print_warn "裸 iptables 规则不会自动持久化，请自行保存。"
+        print_ok "防火墙${cmd}：${port}/${proto}"
       else
         print_warn "未检测到可用的防火墙工具"; return 1
       fi
-      print_ok "防火墙${cmd}：${port}/${proto}"
       ;;
     *) print_err "未知 fw 子命令：${cmd}"; cli_fw_usage; return 2 ;;
   esac

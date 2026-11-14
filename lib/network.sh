@@ -318,7 +318,8 @@ udp_port_binding_alive() {
   local port="$1"
   [[ "${port}" =~ ^[0-9]+$ ]] || return 1
   if command_exists ss; then
-    ss -lunH 2>/dev/null | awk -v p="${port}" '$4 ~ ":" p "$" { found=1 } END { exit found ? 0 : 1 }'
+    # ss 本地地址在第 5 列（$4 是 Send-Q，取错列会永远判死，watchdog 误判 UDP 假活）
+    ss -lunH 2>/dev/null | awk -v p="${port}" '$5 ~ ":" p "$" { found=1 } END { exit found ? 0 : 1 }'
     return $?
   elif command_exists netstat; then
     netstat -lun 2>/dev/null | awk -v p="${port}" '$4 ~ ":" p "$" { found=1 } END { exit found ? 0 : 1 }'
@@ -379,7 +380,9 @@ snapshot_metadata_ports() {
 snapshot_system_ports() {
   [ -n "${_SYSTEM_PORTS:-}" ] && return 0
   if command_exists ss; then
-    _SYSTEM_PORTS="$(ss -ltnuH 2>/dev/null | awk '$1 ~ /^(tcp|tcp6|udp|udp6)$/ { t=$4; sub(/.*:/,"",t); if (t ~ /^[0-9]+$/) print t }' | sort -nu | tr '\n' ' ' || true)"
+    # ss 的列布局：Proto Recv-Q Send-Q Local Peer——本地地址在第 5 列
+    # （此前取 $4 实为 Send-Q，导致 system_has_port 永远检测不到占用，实测 38 台机队证实）
+    _SYSTEM_PORTS="$(ss -ltnuH 2>/dev/null | awk '$1 ~ /^(tcp|tcp6|udp|udp6)$/ { t=$5; sub(/.*:/,"",t); if (t ~ /^[0-9]+$/) print t }' | sort -nu | tr '\n' ' ' || true)"
   elif command_exists netstat; then
     _SYSTEM_PORTS="$(netstat -lntup 2>/dev/null | awk '$1 ~ /^(tcp|tcp6|udp|udp6)$/ { t=$4; sub(/.*:/,"",t); if (t ~ /^[0-9]+$/) print t }' | sort -nu | tr '\n' ' ' || true)"
   fi
@@ -396,6 +399,85 @@ system_has_port() {
   local port="$1"
   snapshot_system_ports
   [[ " ${_SYSTEM_PORTS} " == *" ${port} "* ]]
+}
+
+# 防火墙单端口操作（open|close × tcp|udp）：ufw > firewalld > 裸 iptables。
+# 供 `sbm fw` 与一键安装的自动放行共用；返回 127 表示无可用防火墙工具。
+fw_apply_port() {
+  local cmd="$1" proto="$2" port="$3"
+  if command_exists ufw && ufw status >/dev/null 2>&1; then
+    if [ "${cmd}" = open ]; then
+      ufw allow "${port}/${proto}" >/dev/null 2>&1 || return 1
+    else
+      ufw delete allow "${port}/${proto}" >/dev/null 2>&1 || true
+    fi
+    return 0
+  elif command_exists firewall-cmd && firewall-cmd --state >/dev/null 2>&1; then
+    if [ "${cmd}" = open ]; then
+      firewall-cmd --add-port="${port}/${proto}" >/dev/null 2>&1 &&
+        firewall-cmd --permanent --add-port="${port}/${proto}" >/dev/null 2>&1 || return 1
+    else
+      firewall-cmd --remove-port="${port}/${proto}" >/dev/null 2>&1 || true
+      firewall-cmd --permanent --remove-port="${port}/${proto}" >/dev/null 2>&1 || true
+    fi
+    return 0
+  elif command_exists iptables; then
+    local -a rule=(-p "${proto}" --dport "${port}" -m comment --comment "sbm_fw" -j ACCEPT)
+    if [ "${cmd}" = open ]; then
+      iptables -C INPUT "${rule[@]}" >/dev/null 2>&1 && return 0
+      local __err
+      if ! __err="$(iptables -I INPUT "${rule[@]}" 2>&1)"; then
+        [ -n "${__err}" ] && print_warn "iptables: ${__err:0:120}"
+        return 1
+      fi
+    else
+      iptables -D INPUT "${rule[@]}" >/dev/null 2>&1 || true
+    fi
+    return 0
+  fi
+  return 127
+}
+
+# 节点协议 → 防火墙协议映射；Argo 仅本地回源无需放行
+fw_proto_for_node() {
+  case "$1" in
+  vless-reality | vless-xudp | vless-ws-tls | anytls | socks5) printf 'tcp' ;;
+  tuic-v5 | hy2) printf 'udp' ;;
+  *) printf '' ;;
+  esac
+}
+
+# 一键安装后自动放行节点端口（best-effort，失败只警告不影响安装结果）：
+# Oracle 官方镜像 iptables 默认 REJECT 除 22 外的入站，节点监听正常但外网不可达，
+# 是"装好了连不上"的最高频原因。/etc/iptables 存在时顺带持久化（netfilter-persistent 惯例）。
+fw_auto_open_specs() {
+  local opened=0 failed=0 rc spec proto port fwproto
+  for spec in "$@"; do
+    proto="${spec%% *}"
+    port="${spec##* }"
+    fwproto="$(fw_proto_for_node "${proto}")"
+    [ -n "${fwproto}" ] || continue
+    fw_apply_port open "${fwproto}" "${port}" && rc=0 || rc=$?
+    if [ "${rc}" -eq 0 ]; then
+      opened=$((opened + 1))
+    elif [ "${rc}" -eq 127 ]; then
+      print_warn "未检测到防火墙工具（ufw/firewalld/iptables），无法自动放行 ${port}/${fwproto}。"
+      return 0
+    else
+      failed=$((failed + 1))
+      print_warn "防火墙放行失败：${port}/${fwproto}（可用 sbm fw open --port ${port} --proto ${fwproto} 手动处理）。"
+    fi
+  done
+  if [ "${opened}" -gt 0 ]; then
+    if command_exists iptables-save && [ -d /etc/iptables ]; then
+      iptables-save > /etc/iptables/rules.v4 2>/dev/null &&
+        ip6tables-save > /etc/iptables/rules.v6 2>/dev/null || true
+      print_info "已自动放行 ${opened} 个节点端口，并持久化到 /etc/iptables/rules.v4。"
+    else
+      print_info "已自动放行 ${opened} 个节点端口（仅运行期生效，重启后需重做或自行持久化）。"
+    fi
+  fi
+  return 0
 }
 
 port_available() {
