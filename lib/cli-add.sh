@@ -46,25 +46,15 @@ random_free_port() {
 
 sni_candidates() {
   cat <<'EOF'
-www.bing.com
-www.microsoft.com
-www.adobe.com
-deb.debian.org
-pypi.org
 dl-cdn.alpinelinux.org
-static.rust-lang.org
+deb.debian.org
+crates.io
+pypi.org
 rubygems.org
 addons.mozilla.org
-www.python.org
-www.fastly.com
-gateway.icloud.com
-www.utoronto.ca
-www.cam.ac.uk
-www.kyoto-u.ac.jp
-www.nus.edu.sg
-www.hku.hk
-www.cathaypacific.com
-www.lg.com
+formulae.brew.sh
+static.rust-lang.org
+cpan.org
 EOF
 }
 
@@ -91,7 +81,7 @@ cli_sni() {
   if best="$(detect_sni_best)"; then
     print_ok "推荐 SNI：${best}"
   else
-    print_warn "自动检测失败，建议使用 www.bing.com"
+    print_warn "自动检测失败，建议使用 pypi.org"
     return 1
   fi
 }
@@ -125,7 +115,7 @@ cli_add() {
   fi
   [ -n "${name}" ] || name="${protocol}-${port}"
   if [ "${sni}" = "auto" ]; then
-    sni="$(detect_sni_best || printf 'www.bing.com')"
+    sni="$(detect_sni_best || printf 'pypi.org')"
   fi
   export name
   [ -n "${uuid}" ] && export uuid

@@ -29,8 +29,8 @@ SYSTEMD_WATCHDOG_TIMER_FILE="/etc/systemd/system/${WATCHDOG_TIMER_NAME}"
 OPENRC_SERVICE_FILE="/etc/init.d/${SERVICE_NAME}"
 
 DEFAULT_CDN_DOMAIN="saas.sin.fan"
-DEFAULT_REALITY_SERVER="www.bing.com"
-DEFAULT_TLS_SERVER="www.apple.com"
+DEFAULT_REALITY_SERVER="pypi.org"
+DEFAULT_TLS_SERVER="pypi.org"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_ROOT=""

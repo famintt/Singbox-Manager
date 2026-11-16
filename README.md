@@ -48,7 +48,7 @@ vlrt=2083 hypt=2082 name='HK' sbm rep      # 已安装时
 | `uuid` | VLESS/TUIC 共用 UUID | 自动生成 |
 | `passwd` | AnyTLS/HY2/TUIC 密码 | 自动生成 |
 | `name` | 节点名前缀（生成 `HK-Reality` 等） | 内置默认名 |
-| `vl_sni` `vx_sni` `ws_host` `tu_sni` `any_sni` `hy_sni` | 各协议 SNI（ws_host 仅供命令行 `ws_mode=direct` 直连用；界面 WS 已仅 CDN，SNI/Host 用 `ws_cdn_sni`；vx_sni 默认 `www.bing.com`） | 见说明 |
+| `vl_sni` `vx_sni` `ws_host` `tu_sni` `any_sni` `hy_sni` | 各协议 SNI（ws_host 仅供命令行 `ws_mode=direct` 直连用；界面 WS 已仅 CDN，SNI/Host 用 `ws_cdn_sni`；vx_sni 默认 `pypi.org`） | 见说明 |
 | `ws_path` | WS 路径 | 随机 |
 | `up_mbps` `down_mbps` | HY2 带宽 | 200 |
 | `socks5_username` `socks5_password` | SOCKS5 账号 | user / 随机 |

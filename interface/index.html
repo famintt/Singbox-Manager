@@ -218,7 +218,7 @@
       </section>
 
       <section class="card">
-        <h2>③ SNI 配置 <span class="tip">Reality 留空自动检测；其他协议 www.apple.com</span></h2>
+        <h2>③ SNI 配置 <span class="tip">Reality 留空自动检测；其他协议 pypi.org</span></h2>
         <div class="row">
           <label>Reality 伪装域名 <span class="pill">vl_sni</span></label>
           <div class="ctl">
@@ -253,28 +253,28 @@
         <div class="row">
           <label>VLESS+XUDP+Reality SNI <span class="pill">vx_sni</span></label>
           <div class="ctl">
-            <input type="text" id="vx_sni" class="has-pick" placeholder="留空默认 www.bing.com（Reality）；输入 auto 自动检测">
+            <input type="text" id="vx_sni" class="has-pick" placeholder="留空默认 pypi.org（Reality）；输入 auto 自动检测">
             <select class="pick sni-pick" data-target="vx_sni"><option value="">选择…</option></select>
           </div>
         </div>
         <div class="row">
           <label>TUIC SNI <span class="pill">tu_sni</span></label>
           <div class="ctl">
-            <input type="text" id="tu_sni" class="has-pick" placeholder="留空默认 www.apple.com；输入 auto 自动检测">
+            <input type="text" id="tu_sni" class="has-pick" placeholder="留空默认 pypi.org；输入 auto 自动检测">
             <select class="pick sni-pick" data-target="tu_sni"><option value="">选择…</option></select>
           </div>
         </div>
         <div class="row">
           <label>AnyTLS SNI <span class="pill">any_sni</span></label>
           <div class="ctl">
-            <input type="text" id="any_sni" class="has-pick" placeholder="留空默认 www.apple.com；输入 auto 自动检测">
+            <input type="text" id="any_sni" class="has-pick" placeholder="留空默认 pypi.org；输入 auto 自动检测">
             <select class="pick sni-pick" data-target="any_sni"><option value="">选择…</option></select>
           </div>
         </div>
         <div class="row">
           <label>Hysteria2 SNI <span class="pill">hy_sni</span></label>
           <div class="ctl">
-            <input type="text" id="hy_sni" class="has-pick" placeholder="留空默认 www.apple.com；输入 auto 自动检测">
+            <input type="text" id="hy_sni" class="has-pick" placeholder="留空默认 pypi.org；输入 auto 自动检测">
             <select class="pick sni-pick" data-target="hy_sni"><option value="">选择…</option></select>
           </div>
         </div>
@@ -999,7 +999,7 @@
   renderCmdList('mtp-cmds', MTP_CMDS);
 
   // SNI 伪装域名候选（下拉选择填入输入框，输入框仍可手输，留空用内置默认值）
-  var SNI_LIST = ['www.bing.com', 'www.microsoft.com', 'www.adobe.com', 'deb.debian.org', 'pypi.org', 'dl-cdn.alpinelinux.org', 'static.rust-lang.org', 'rubygems.org', 'addons.mozilla.org', 'www.python.org', 'www.fastly.com', 'gateway.icloud.com', 'www.utoronto.ca', 'www.cam.ac.uk', 'www.kyoto-u.ac.jp', 'www.nus.edu.sg', 'www.hku.hk', 'www.cathaypacific.com', 'www.lg.com', 'www.apple.com'];
+  var SNI_LIST = ['dl-cdn.alpinelinux.org', 'deb.debian.org', 'crates.io', 'pypi.org', 'rubygems.org', 'addons.mozilla.org', 'formulae.brew.sh', 'static.rust-lang.org', 'cpan.org'];
   document.querySelectorAll('select.sni-pick').forEach(function (sel) {
     SNI_LIST.forEach(function (d) {
       var o = document.createElement('option');

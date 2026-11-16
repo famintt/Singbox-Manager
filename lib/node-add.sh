@@ -72,7 +72,7 @@ add_vless_reality() {
   ensure_singbox_ready
   tag="$(generate_tag "vless-reality")"
   port="$(prompt_port 443)"
-  name="$(prompt_with_default "节点名称" "VLESS-Reality")"
+  name="$(prompt_with_default "节点名称" "REALITY")"
   uuid="$(prompt_optional_value "UUID（留空自动生成）")"
   uuid="${uuid:-$(generate_uuid)}"
   reality_server="$(prompt_reality_sni)"
@@ -121,7 +121,7 @@ add_vless_ws_tls() {
   ensure_singbox_ready
   tag="$(generate_tag "vless-ws-tls")"
   port="$(prompt_port 8443)"
-  name="$(prompt_with_default "节点名称" "VLESS-WS-TLS")"
+  name="$(prompt_with_default "节点名称" "WS")"
   uuid="$(prompt_optional_value "UUID（留空自动生成）")"
   uuid="${uuid:-$(generate_uuid)}"
   preferred_domain="$(prompt_cdn_domain)"
@@ -174,7 +174,7 @@ add_anytls() {
   ensure_singbox_ready
   tag="$(generate_tag "anytls")"
   port="$(prompt_port 5443)"
-  name="$(prompt_with_default "节点名称" "AnyTLS")"
+  name="$(prompt_with_default "节点名称" "ANYTLS")"
   password="$(prompt_optional_value "密码（留空自动生成）")"
   password="${password:-$(generate_hex 8)}"
   tls_server="$(prompt_tls_sni)"
@@ -226,7 +226,7 @@ add_vless_xudp() {
   security="reality"
 
   if [ "${security}" = "reality" ]; then
-    name="$(prompt_with_default "节点名称" "VLESS-XUDP-Reality")"
+    name="$(prompt_with_default "节点名称" "XUDP")"
     uuid="$(prompt_optional_value "UUID（留空自动生成）")"
     uuid="${uuid:-$(generate_uuid)}"
     reality_server="$(prompt_reality_sni)"
@@ -263,7 +263,7 @@ add_vless_xudp() {
       fatal "添加节点失败：${name}"
     fi
   else
-    name="$(prompt_with_default "节点名称" "VLESS-XUDP")"
+    name="$(prompt_with_default "节点名称" "XUDP")"
     uuid="$(prompt_optional_value "UUID（留空自动生成）")"
     uuid="${uuid:-$(generate_uuid)}"
     tls_server="$(prompt_tls_sni)"
@@ -310,7 +310,7 @@ add_vless_argo() {
   ensure_singbox_ready
   tag="$(generate_tag "vless-argo")"
   port="$(prompt_port 8001)"
-  name="$(prompt_with_default "节点名称" "VLESS-Argo")"
+  name="$(prompt_with_default "节点名称" "ARGO")"
   uuid="$(prompt_optional_value "UUID（留空自动生成）")"
   uuid="${uuid:-$(generate_uuid)}"
   preferred_domain="$(prompt_cdn_domain)"
@@ -372,7 +372,7 @@ add_tuic_v5() {
   ensure_singbox_ready
   tag="$(generate_tag "tuic-v5")"
   port="$(prompt_port 10443)"
-  name="$(prompt_with_default "节点名称" "TUIC-v5")"
+  name="$(prompt_with_default "节点名称" "TUIC")"
   uuid="$(prompt_optional_value "UUID（留空自动生成）")"
   uuid="${uuid:-$(generate_uuid)}"
   password="$(prompt_optional_value "密码（留空自动生成）")"
@@ -421,7 +421,7 @@ add_hy2() {
   ensure_singbox_ready
   tag="$(generate_tag "hy2")"
   port="$(prompt_port 11443)"
-  name="$(prompt_with_default "节点名称" "Hysteria2")"
+  name="$(prompt_with_default "节点名称" "HY2")"
   password="$(prompt_optional_value "密码（留空自动生成）")"
   password="${password:-$(generate_hex 8)}"
   tls_server="$(prompt_tls_sni)"
