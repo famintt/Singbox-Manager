@@ -3,6 +3,16 @@ set -eEuo pipefail
 
 umask 077
 
+# 节点显示名：机器名按用户配置原样保留，协议名使用固定大小写。
+node_display_name() {
+  local suffix="$1"
+  if [ -n "${ENV_NAME:-}" ]; then
+    printf '%s-%s' "${ENV_NAME}" "$suffix"
+  else
+    printf '%s' "$suffix"
+  fi
+}
+
 # 3.1：Reality multi short_id——短 ID 以逗号分隔配置（ENV short_ids），
 # 过滤掉非法的十六进制/奇数长度/超长 token；无合法项时返回失败由调用方生成默认单 ID。
 resolve_short_ids() {
@@ -93,7 +103,7 @@ auto_add_vless_reality() {
   local port="$1"
   local tag name uuid reality_server key_output private_key public_key short_id node_json secret_json
   tag="$(generate_tag "vless-reality")"
-  if [ -n "${ENV_NAME}" ]; then name="${ENV_NAME^^}-REALITY"; else name="REALITY"; fi
+  name="$(node_display_name "Reality")"
   uuid="${ENV_UUID:-$(generate_uuid)}"
   reality_server="${ENV_VL_SNI:-${DEFAULT_REALITY_SERVER}}"
 
@@ -146,7 +156,7 @@ auto_add_vless_ws_tls() {
   local port="$1"
   local tag name uuid preferred_domain host_domain ws_path cert_bundle cert_mode cert_file key_file node_json secret_json ws_mode cdn_port cdn_sni
   tag="$(generate_tag "vless-ws-tls")"
-  if [ -n "${ENV_NAME}" ]; then name="${ENV_NAME^^}-WS"; else name="WS"; fi
+  name="$(node_display_name "WS")"
   uuid="${ENV_UUID:-$(generate_uuid)}"
   # CDN 连接地址（ws_cdn 设计：脚本专用 > 共享 > 兼容旧名 cdn_host > 内置默认）
   preferred_domain="${ENV_WS_CDN_VLESS_CF_HOST:-${ENV_WS_CDN_CF_HOST:-${ENV_CDN_HOST:-${DEFAULT_CDN_DOMAIN}}}}"
@@ -164,6 +174,11 @@ auto_add_vless_ws_tls() {
     ws_mode="direct"
     ;;
   esac
+  if [ "${ws_mode}" = "cdn" ]; then
+    name="$(node_display_name "CDN")"
+  else
+    name="$(node_display_name "WS")"
+  fi
   if [[ ! "${cdn_port}" =~ ^[0-9]+$ ]] || [ "${cdn_port}" -lt 1 ] || [ "${cdn_port}" -gt 65535 ]; then
     print_warn "cdn_port=${cdn_port} 非法，回退 443。"
     cdn_port=443
@@ -210,7 +225,7 @@ auto_add_anytls() {
   local port="$1"
   local tag name password tls_server cert_bundle cert_mode cert_file key_file node_json secret_json
   tag="$(generate_tag "anytls")"
-  if [ -n "${ENV_NAME}" ]; then name="${ENV_NAME^^}-ANYTLS"; else name="ANYTLS"; fi
+  name="$(node_display_name "AnyTLS")"
   password="${ENV_PASSWD:-$(generate_hex 8)}"
   tls_server="${ENV_ANY_SNI:-${DEFAULT_TLS_SERVER}}"
   cert_bundle="$(auto_cert_bundle "$tag" "$tls_server")"
@@ -248,7 +263,7 @@ auto_add_vless_xudp() {
   tag="$(generate_tag "vless-xudp")"
   security="reality"
   if [ "${security}" = "reality" ]; then
-    if [ -n "${ENV_NAME:-}" ]; then name="${ENV_NAME^^}-XUDP"; else name="XUDP"; fi
+    name="$(node_display_name "XUDP")"
     uuid="${ENV_UUID:-$(generate_uuid)}"
     reality_server="${ENV_VX_SNI:-${DEFAULT_REALITY_SERVER}}"
     private_key="$(manager_env_or_setting "reality_private" "")"
@@ -290,7 +305,7 @@ auto_add_vless_xudp() {
       --arg uuid "$uuid" \
       --arg private_key "$private_key" '{ uuid: $uuid, private_key: $private_key }')"
   else
-    if [ -n "${ENV_NAME:-}" ]; then name="${ENV_NAME^^}-XUDP"; else name="XUDP"; fi
+    name="$(node_display_name "XUDP")"
     uuid="${ENV_UUID:-$(generate_uuid)}"
     tls_server="${ENV_VX_SNI:-${DEFAULT_TLS_SERVER}}"
     cert_bundle="$(auto_cert_bundle "$tag" "$tls_server")"
@@ -326,7 +341,7 @@ auto_add_vless_argo() {
   local port="$1"
   local tag name uuid preferred_domain cdn_port ws_path argo_mode argo_token endpoint_domain node_json secret_json
   tag="$(generate_tag "vless-argo")"
-  if [ -n "${ENV_NAME:-}" ]; then name="${ENV_NAME^^}-ARGO"; else name="ARGO"; fi
+  name="$(node_display_name "Argo")"
   uuid="${ENV_UUID:-$(generate_uuid)}"
   # Argo 专属优选域名/端口（v0.3.3）：独立于 WS-CDN，缺省回退 cdn_host/443
   preferred_domain="${ENV_ARGO_CDN_HOST:-${ENV_CDN_HOST:-${DEFAULT_CDN_DOMAIN}}}"
@@ -384,7 +399,7 @@ auto_add_tuic_v5() {
   local port="$1"
   local tag name uuid password tls_server cert_bundle cert_mode cert_file key_file node_json secret_json
   tag="$(generate_tag "tuic-v5")"
-  if [ -n "${ENV_NAME}" ]; then name="${ENV_NAME^^}-TUIC"; else name="TUIC"; fi
+  name="$(node_display_name "TUIC")"
   uuid="${ENV_UUID:-$(generate_uuid)}"
   password="${ENV_PASSWD:-$uuid}"
   tls_server="${ENV_TU_SNI:-${DEFAULT_TLS_SERVER}}"
@@ -421,7 +436,7 @@ auto_add_hy2() {
   local tag name password tls_server cert_bundle cert_mode cert_file key_file node_json secret_json
   local __hy_up __hy_down
   tag="$(generate_tag "hy2")"
-  if [ -n "${ENV_NAME}" ]; then name="${ENV_NAME^^}-HY2"; else name="HY2"; fi
+  name="$(node_display_name "HY2")"
   password="${ENV_PASSWD:-$(generate_hex 8)}"
   tls_server="${ENV_HY_SNI:-${DEFAULT_TLS_SERVER}}"
   # 局部名不用 up_mbps/down_mbps，避免遮蔽同名用户环境变量导致读取为空
@@ -472,7 +487,7 @@ auto_add_socks5() {
   local port="$1"
   local tag name username password node_json secret_json
   tag="$(generate_tag "socks5")"
-  if [ -n "${ENV_NAME}" ]; then name="${ENV_NAME^^}-SOCKS5"; else name="SOCKS5"; fi
+  name="$(node_display_name "SOCKS5")"
   username="${ENV_SOCKS5_USER:-user}"
   password="${ENV_SOCKS5_PASS:-$(generate_hex 6)}"
 

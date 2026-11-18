@@ -67,7 +67,7 @@ esac
 source "${ROOT_DIR}/sb.sh"
 
 # --- v1.9.7 订阅上报变化检测 ---
-assert_eq "VERSION 稳定版 1.9.8" "v1.9.8" "$(tr -d "\r\n" < "${ROOT_DIR}/VERSION")"
+assert_eq "VERSION 稳定版 1.9.9" "v1.9.9" "$(tr -d "\r\n" < "${ROOT_DIR}/VERSION")"
 assert_eval_true "UI 使用 VLESS+Vision+Reality 标签" 'grep -q "VLESS+Vision+Reality" "${ROOT_DIR}/interface/index.html"'
 assert_eval_true "UI 使用 VLESS+XUDP+Reality 标签" 'grep -q "VLESS+XUDP+Reality" "${ROOT_DIR}/interface/index.html"'
 assert_eval_false "UI 不再暴露 XUDP 安全层选项" 'grep -q "vx_security" "${ROOT_DIR}/interface/index.html"'
@@ -1004,6 +1004,14 @@ assert_eq "默认 XUDP 节点协议" "vless-xudp" "$(jq -r 'to_entries[] | selec
 assert_eq "默认 XUDP 使用 Reality SNI" "www.apple.com" "$(jq -r 'to_entries[] | select(.value.port == 20841) | .value.reality_server' "${NODES_FILE}")"
 assert_eval_true "默认 XUDP 生成 Reality 公钥" 'jq -e "to_entries[] | select(.value.port == 20841) | .value.public_key | length > 0" "${NODES_FILE}" >/dev/null'
 assert_eval_true "默认 XUDP 生成 Reality 私钥" 'jq -e "to_entries[] | select(.value.private_key != null and (.value.private_key | length) > 0)" "${SECRETS_FILE}" >/dev/null'
+
+assert_eq "XUDP 节点名保留机器名大小写" "Td-XUDP" "$(jq -r 'to_entries[] | select(.value.port == 20841) | .value.name' "${NODES_FILE}")"
+
+# 节点显示名：机器名原样保留，协议名固定大小写，不强制大写机器名。
+assert_eq "命名：小写机器名+Reality" "hk-yt-Reality" "$(ENV_NAME=hk-yt node_display_name Reality)"
+assert_eq "命名：大小写机器名+AnyTLS" "HK-YT-AnyTLS" "$(ENV_NAME=HK-YT node_display_name AnyTLS)"
+assert_eq "命名：TUIC" "TUIC" "$(ENV_NAME= node_display_name TUIC)"
+assert_eq "命名：XUDP" "MiXeD-XUDP" "$(ENV_NAME=MiXeD node_display_name XUDP)"
 
 delete_all_nodes >/dev/null 2>&1 || true
 rm -rf "${TEST_ROOT}"

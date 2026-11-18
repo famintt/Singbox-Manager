@@ -72,7 +72,7 @@ add_vless_reality() {
   ensure_singbox_ready
   tag="$(generate_tag "vless-reality")"
   port="$(prompt_port 443)"
-  name="$(prompt_with_default "节点名称" "REALITY")"
+  name="$(prompt_with_default "节点名称" "Reality")"
   uuid="$(prompt_optional_value "UUID（留空自动生成）")"
   uuid="${uuid:-$(generate_uuid)}"
   reality_server="$(prompt_reality_sni)"
@@ -174,7 +174,7 @@ add_anytls() {
   ensure_singbox_ready
   tag="$(generate_tag "anytls")"
   port="$(prompt_port 5443)"
-  name="$(prompt_with_default "节点名称" "ANYTLS")"
+  name="$(prompt_with_default "节点名称" "AnyTLS")"
   password="$(prompt_optional_value "密码（留空自动生成）")"
   password="${password:-$(generate_hex 8)}"
   tls_server="$(prompt_tls_sni)"
@@ -310,7 +310,7 @@ add_vless_argo() {
   ensure_singbox_ready
   tag="$(generate_tag "vless-argo")"
   port="$(prompt_port 8001)"
-  name="$(prompt_with_default "节点名称" "ARGO")"
+  name="$(prompt_with_default "节点名称" "Argo")"
   uuid="$(prompt_optional_value "UUID（留空自动生成）")"
   uuid="${uuid:-$(generate_uuid)}"
   preferred_domain="$(prompt_cdn_domain)"
