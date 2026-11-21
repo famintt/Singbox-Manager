@@ -50,7 +50,7 @@ REPO_NAME="Singbox-Manager"
 PROJECT_VERSION="v1.10.0"
 PACKAGE_NAME="singbox-manager-v1.10.0.tar.gz"
 # 发布流程：scripts/build-release-bundle.sh 构建可复现 bundle，其 SHA256 与此处一致
-PACKAGE_SHA256="f611b83ad218eab7951c50f9a1ec48db1615d013e7ecf22f3e011834ef6c594a"
+PACKAGE_SHA256="2a1cae557f6ce5115d8d9867eb3bfa258badb308110dde8810415fc7c30a0c8d"
 PACKAGE_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${PROJECT_VERSION}/${PACKAGE_NAME}"
 
 # P3：失败路径（下载中断、校验不通过、解包失败）会留下 mktemp 目录/文件；

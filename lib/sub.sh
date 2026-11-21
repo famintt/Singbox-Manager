@@ -73,7 +73,8 @@ sub_worker_token() {
 }
 
 sub_token_is_split() {
-  [ -n "${SUB_REPORT_TOKEN:-}" ] && [ -n "${SUB_READ_TOKEN:-}" ]
+  [ -n "$(manager_env_or_setting "sub_report_token" "")" ] &&
+    [ -n "$(manager_env_or_setting "sub_read_token" "")" ]
 }
 
 sub_machine() {
@@ -99,7 +100,7 @@ sub_content_hash() {
 
 # 上报到 sub-worker；成功时写入固定订阅链接。
 sub_report() {
-  local base token machine file url header_file response_file status hash links_hash
+  local base token read_token machine file url header_file response_file status hash links_hash
   base="$(sub_worker_base)" || {
     print_err "订阅设置缺少域名（sub_domain）。"
     return 1
@@ -109,7 +110,7 @@ sub_report() {
     print_err "订阅设置缺少上报密钥（sub_report_token 或 sub_token）。"
     return 1
   }
-  if [ -z "${SUB_REPORT_TOKEN:-}" ] && [ -z "${SUB_READ_TOKEN:-}" ]; then
+  if ! sub_token_is_split; then
     print_warn "当前仅配置了单一 sub_token（读写同权）。建议分别设置 sub_report_token/sub_read_token。"
   fi
   machine="$(sub_machine)"
@@ -144,7 +145,11 @@ sub_report() {
 
   hash="$(sub_content_hash "${file}" 2>/dev/null || true)"
   links_hash="$(sub_content_hash "$(sub_links_file)" 2>/dev/null || true)"
-  url="${base}/sub/${machine}/$(url_encode "${token}")"
+  # A05：订阅 URL 给客户端「读」用读 token；POST 上报仍用写 token，
+  # 两者分离后拿到订阅 URL 的人无法覆盖/篡改本机上报内容。
+  read_token="$(sub_read_token)"
+  [ -n "${read_token}" ] || read_token="${token}"
+  url="${base}/sub/${machine}/$(url_encode "${read_token}")"
   printf '%s\n' "${url}" >"$(sub_url_file)"
   chmod 600 "$(sub_url_file)"
   set_setting "sub_url" "${url}" || true

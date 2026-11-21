@@ -439,6 +439,15 @@ assert_eq "sub_mode worker" "worker" "$(sub_mode=worker; sub_mode)"
 assert_eq "sub_worker_base 补 https" "https://sub.example.com" "$(sub_domain=sub.example.com; sub_worker_base)"
 assert_eq "sub_worker_base 去尾斜杠" "https://sub.example.com" "$(sub_domain=https://sub.example.com/; sub_worker_base)"
 assert_eq "sub_machine 规范化" "my-node" "$(sub_machine='My Node!'; sub_machine)"
+# SEC-01：公网静态服务只暴露 sub/public，凭据与明文链接留在私有目录
+assert_eval_true "sub 发布体位于 public 子目录" 'case "$(sub_file)" in */sub/public/*.txt) true ;; *) false ;; esac'
+assert_eval_true "sub links.txt 不在 public" 'case "$(sub_links_file)" in */sub/public/*) false ;; *) true ;; esac'
+# SEC-05/A05：上报（写）与订阅读取（读）token 分离，各自独立生效
+assert_eq "sub_report_token 用于上报" "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" "$(sub_report_token=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa sub_read_token=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb sub_worker_token)"
+assert_eq "sub_read_token 独立生效" "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" "$(sub_report_token=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa sub_read_token=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb sub_read_token)"
+assert_eq "单 sub_token 时读写共用" "cccccccccccccccccccccccccccccccc" "$(sub_token=cccccccccccccccccccccccccccccccc sub_read_token)"
+assert_eval_true "sub_token_is_split 识别读写分离" 'sub_report_token=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa sub_read_token=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb sub_token_is_split'
+assert_eval_false "sub_token_is_split 单 token 为假" 'sub_token=cccccccccccccccccccccccccccccccc sub_token_is_split'
 
 # --- PID 文件严格校验（审查 F-03） ---
 printf 'abc\n' >"${RUNTIME_DIR}/bad.pid"
