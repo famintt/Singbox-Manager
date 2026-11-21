@@ -119,7 +119,7 @@ sbm un        卸载
 
 分享链接默认使用 IPv4；菜单「9. 全局设置」可切换 `v4 / v6 / auto`（仅双栈机器需要调整）。
 
-## 订阅设置（v1.10.0）
+## 订阅设置（v2.0.0）
 
 推荐使用固定 Worker 订阅：管理器生成全部节点链接的 base64，上报到 [sub-worker](https://github.com/famintt/sub-worker)，客户端使用固定域名；服务器重启后订阅 URL 不变。
 
@@ -203,6 +203,13 @@ tests/smoke.sh               冒烟测试
 - 安全：`set -eEuo pipefail`、`umask 077`、secrets/证书/pid 全部 600；分享链接 authority 对 IPv6 正确加方括号（不再先做查询参数编码）；`build_share_link` 局部变量隔离（`fp` 不泄漏到全局）
 - CI：shellcheck / bash -n / shfmt / 冒烟测试 / 可复现 bundle 构建 / 版本与 `worker.js` 一致性门禁
 - 上游版本见 `metadata/upstream.env`
+
+## v2.0.0 说明
+
+首个大版本，不含破坏性变更：命令行、环境变量、`nodes.json` 结构、分享链接格式与 v1.9.x 完全兼容，`sbm rep` / `sbm up` 可直接覆盖安装。
+
+- 内容等同于 v1.10.0 的审计整改（见下节）加上完整机队回归：32 台（21 台常规 + 11 台 NAT）全部升级到本版，51 条节点，`doctor` 0 错误；Argo 29/29、AnyTLS 2/2、TUIC/HY2 18/20 通过，2 条失败经服务器回环自测确认是云侧 NAT 未映射 UDP 端口，与管理器无关。
+- 版本号从 1.10.0 跨到 2.0.0 表示接口与行为已稳定，便于订阅端和脚本按大版本做兼容判断。
 
 ## v1.10.0 整改清单（安全 / 可靠性）
 
