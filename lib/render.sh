@@ -101,12 +101,28 @@ clash_api_enabled() {
   esac
 }
 
-# 端口占用进程名（root 下 ss -p 可取）；取不到或无占用返回空串
+# 端口占用进程名（root 下 ss -p 可取）；取不到或无占用返回空串。
+# BUG-09：UDP 端口（TUIC/HY2）也必须能识别——旧实现固定用 ss -tlnpH，
+# 只覆盖 TCP，对 UDP 端口恒返回空，doctor 的"占用者"提示对 UDP 协议全部失灵。
 port_owner_name() {
-  local port="$1" line
-  command_exists ss || { printf ''; return 0; }
-  line="$(ss -tlnpH 2>/dev/null | grep -E "[:.]${port}[[:space:]]" | head -n 1 || true)"
-  sed -n 's/.*users:((\"\([^\"]*\)\".*/\1/p' <<<"${line}"
+  local port="$1" proto="${2:-any}" dump line
+  command_exists ss || {
+    printf ''
+    return 0
+  }
+  case "${proto}" in
+  tcp) dump="$(ss -ltnpH 2>/dev/null || true)" ;;
+  udp) dump="$(ss -lunpH 2>/dev/null || true)" ;;
+  *) dump="$(ss -ltunpH 2>/dev/null || true)" ;;
+  esac
+  # 不依赖列号：ss 带 netid（-tu）与不带（-t）时列数不同，按"末字段以 :PORT 结尾"
+  # 定位行再抽进程名，避免 $4/$5 取错列导致恒空（历史 bug）。
+  line="$(printf '%s\n' "${dump}" | awk -v p=":${port}" '{ for (i = 1; i <= NF; i++) if ($i ~ (p "$")) { print; next } }' | head -n 1)"
+  [ -n "${line}" ] || {
+    printf ''
+    return 0
+  }
+  sed -n 's/.*users:(("\([^"]*\)".*/\1/p' <<<"${line}"
 }
 
 # 挑一个空闲的 clash api 端口：默认 19990，被占时在 20000-39999 随机试 20 次
@@ -127,7 +143,19 @@ pick_free_clash_port() {
   printf '19990'
 }
 
+# BUG-09：只读路径（status/list/连接摘要）不得写 settings。旧实现里
+# clash_api_port 在只读场景也可能 set_setting 改端口，导致"看一眼状态"就
+# 改动持久化配置。clash_api_port_readonly 只解析不落盘。
+clash_api_port_readonly() {
+  clash_api_port_resolve 0
+}
+
 clash_api_port() {
+  clash_api_port_resolve 1
+}
+
+clash_api_port_resolve() {
+  local persist="${1:-1}"
   local p owner explicit running_ctl running_port
   # rep 流程里本机 sing-box 刚被停止、端口刚释放，进程级端口缓存已过期，必须重取
   invalidate_port_caches
@@ -167,7 +195,7 @@ clash_api_port() {
       # 同机共存会让 sing-box 因 external controller 绑定失败无限重启）——自动换口并重新持久化
       local picked
       picked="$(pick_free_clash_port)"
-      set_setting "clash_api_port" "${picked}" || true
+      [ "${persist}" = "1" ] && set_setting "clash_api_port" "${picked}" || true
       print_warn "clash api 端口 ${p} 被 ${owner:-其他进程} 占用，已自动改用 ${picked}。"
       printf '%s' "${picked}"
       return 0
@@ -178,7 +206,7 @@ clash_api_port() {
   # 从未配置：默认 19990；被占时自动换口并持久化，避免同机 mihomo/mm 冲突导致启动失败
   local picked
   picked="$(pick_free_clash_port)"
-  set_setting "clash_api_port" "${picked}" || true
+  [ "${persist}" = "1" ] && set_setting "clash_api_port" "${picked}" || true
   if [ "${picked}" != "19990" ]; then
     print_warn "默认 clash api 端口 19990 已被占用，clash api 自动改用 ${picked}。"
   fi
@@ -223,7 +251,7 @@ clash_api_fetch() {
   local _p="$1" _out
   command_exists curl || return 1
   _out="$(curl -fsS --max-time 4 -H "Authorization: Bearer $(ensure_clash_api_secret)" \
-    "http://127.0.0.1:$(clash_api_port)${_p}" 2>/dev/null || true)"
+    "http://127.0.0.1:$(clash_api_port_readonly)${_p}" 2>/dev/null || true)"
   [ -n "${_out}" ] || return 1
   printf '%s' "${_out}"
 }

@@ -62,6 +62,9 @@ acquire_lock() {
 
   start_time="$(date +%s)"
   if command_exists flock; then
+    # A07：锁必须记归属者。命令替换/basename 等子 shell 会继承 LOCK_HELD=true，
+    # 若它们也调用 release_lock，就会把父进程持有的锁提前释放（事务失去保护）。
+    LOCK_OWNER_PID="${BASHPID}"
     exec {LOCK_FD}>"${LOCK_FILE}"
     while ! flock -n "${LOCK_FD}"; do
       now="$(date +%s)"
@@ -90,6 +93,7 @@ acquire_lock() {
     done
   fi
 
+  LOCK_OWNER_PID="${BASHPID}"
   LOCK_HELD=true
 }
 
@@ -111,12 +115,23 @@ try_acquire_lock() {
     mkdir "${LOCK_DIR_FALLBACK}" 2>/dev/null || return 1
   fi
 
+  LOCK_OWNER_PID="${BASHPID}"
   LOCK_HELD=true
   return 0
 }
 
+# A07：只有锁的持有进程才能释放锁；子 shell 继承的 LOCK_HELD 不得据此放锁。
+lock_owned_by_self() {
+  [ "${LOCK_HELD}" = true ] || return 1
+  [ -z "${LOCK_OWNER_PID:-}" ] && return 0
+  [ "${LOCK_OWNER_PID}" = "${BASHPID}" ]
+}
+
 release_lock() {
   if [ "${LOCK_HELD}" != true ]; then
+    return 0
+  fi
+  if ! lock_owned_by_self; then
     return 0
   fi
 
@@ -129,6 +144,7 @@ release_lock() {
   fi
 
   LOCK_HELD=false
+  LOCK_OWNER_PID=""
 }
 
 json_update() {
@@ -218,22 +234,55 @@ delete_node_records() {
   json_delete_record "${SECRETS_FILE}" "$tag"
 }
 
+# A06：对账只在"能确定记录不存在"时删除。jq -e 在结果 false 与解析失败时都返回非 0，
+# 旧实现把"状态文件损坏/读失败"当成"记录不存在"，会连带删掉有效节点或密钥。
+# 这里显式分开三态：has=true 保留、has=false 删除、读失败只告警不删。
+json_has_record() {
+  local file="$1" tag="$2" out
+  [ -f "${file}" ] || return 2
+  out="$(jq -r --arg tag "${tag}" 'if type == "object" then (has($tag) | tostring) else "null" end' "${file}" 2>/dev/null)" || return 2
+  case "${out}" in
+  true) return 0 ;;
+  false) return 1 ;;
+  *) return 2 ;;
+  esac
+}
+
 reconcile_state() {
-  local tag
+  local tag rc
   while IFS= read -r tag; do
     [ -n "${tag}" ] || continue
-    if ! jq -e --arg tag "${tag}" 'has($tag)' "${SECRETS_FILE}" >/dev/null 2>&1; then
+    rc=0
+    json_has_record "${SECRETS_FILE}" "${tag}" || rc=$?
+    case "${rc}" in
+    0) ;;
+    1)
       print_warn "对账：节点 ${tag} 缺少密钥记录，已移除。"
-      json_delete_record "${NODES_FILE}" "${tag}"
-    fi
+      json_delete_record "${NODES_FILE}" "${tag}" || print_err "对账：移除 ${tag} 失败。"
+      ;;
+    *)
+      print_warn "对账：密钥文件不可读或格式异常，已跳过本轮删除（避免误删节点 ${tag}）。"
+      return 1
+      ;;
+    esac
   done < <(iter_node_tags)
   while IFS= read -r tag; do
     [ -n "${tag}" ] || continue
-    if ! jq -e --arg tag "${tag}" 'has($tag)' "${NODES_FILE}" >/dev/null 2>&1; then
+    rc=0
+    json_has_record "${NODES_FILE}" "${tag}" || rc=$?
+    case "${rc}" in
+    0) ;;
+    1)
       print_warn "对账：孤儿密钥 ${tag}，已移除。"
-      json_delete_record "${SECRETS_FILE}" "${tag}"
-    fi
-  done < <(jq -r 'keys[]' "${SECRETS_FILE}" 2>/dev/null | tr -d '\r')
+      json_delete_record "${SECRETS_FILE}" "${tag}" || print_err "对账：移除密钥 ${tag} 失败。"
+      ;;
+    *)
+      print_warn "对账：节点文件不可读或格式异常，已跳过本轮删除（避免误删密钥 ${tag}）。"
+      return 1
+      ;;
+    esac
+  done < <(jq -r 'if type == "object" then keys[] else empty end' "${SECRETS_FILE}" 2>/dev/null | tr -d '\r')
+  return 0
 }
 
 backup_state() {
@@ -256,20 +305,28 @@ backup_state() {
     return 1
   fi
 
-  find "${BASE_DIR}/backups" -mindepth 1 -maxdepth 1 ! -name '.staging.*' -type d 2>/dev/null | sort -r | tail -n +11 | xargs -r rm -rf
+  # P3：BusyBox 的 xargs 不支持 -r，空输入会执行 rm -rf（无参数误报）；显式判空。
+  local old_backups
+  old_backups="$(find "${BASE_DIR}/backups" -mindepth 1 -maxdepth 1 ! -name '.staging.*' -type d 2>/dev/null | sort -r | tail -n +11)"
+  if [ -n "${old_backups}" ]; then
+    printf '%s\n' "${old_backups}" | while IFS= read -r f; do
+      [ -n "${f}" ] && rm -rf "${f}"
+    done
+  fi
   printf '%s' "${backup_dir}"
 }
 
-restore_latest_backup() {
-  local latest f
-  latest="$(find "${BASE_DIR}/backups" -mindepth 1 -maxdepth 1 ! -name '.staging.*' -type d 2>/dev/null | sort | tail -n 1)"
-  if [ -z "${latest}" ]; then
-    print_err "没有可用的状态备份。"
+# A07：按指定快照回滚。事务失败时旧实现取"最新备份"，若期间有并发/多次备份，
+# 恢复到的可能不是本次事务开始前的状态，等于回到别人的中间态。
+restore_snapshot() {
+  local latest="$1" f
+  if [ -z "${latest}" ] || [ ! -d "${latest}" ]; then
+    print_err "指定的状态快照不存在：${latest:-<空>}"
     return 1
   fi
   for f in nodes.json secrets.json config.json settings.json; do
     if [ -f "${latest}/${f}" ]; then
-      cp "${latest}/${f}" "${BASE_DIR}/${f}" && chmod 600 "${BASE_DIR}/${f}"
+      cp "${latest}/${f}" "${BASE_DIR}/${f}" && chmod 600 "${BASE_DIR}/${f}" || return 1
     fi
   done
   # 一并恢复证书/私钥（若该快照含 certs/），使自签/自定义证书节点完整可回滚
@@ -284,6 +341,16 @@ restore_latest_backup() {
     done
   fi
   print_ok "已从备份恢复：${latest}"
+}
+
+restore_latest_backup() {
+  local latest
+  latest="$(find "${BASE_DIR}/backups" -mindepth 1 -maxdepth 1 ! -name '.staging.*' -type d 2>/dev/null | sort | tail -n 1)"
+  if [ -z "${latest}" ]; then
+    print_err "没有可用的状态备份。"
+    return 1
+  fi
+  restore_snapshot "${latest}"
 }
 
 rotate_log_file() {

@@ -197,17 +197,45 @@ install_release_bundle() {
   done
 
   install -d -m 700 "${LIB_DIR}" "${BASE_DIR}"
+  # A08：单文件原子写不等于整版本原子切换。若第 3 个 lib 写入失败，前面 2 个已是
+  # 新版本、其余仍是旧版本，入口脚本可能加载到版本不一致的实现。
+  # 因此先把当前整套实现快照到临时目录，任一写入失败即整体回滚。
+  local lib_backup=""
+  lib_backup="$(mktemp -d "${BASE_DIR}/.upgrade.XXXXXX" 2>/dev/null || true)"
+  if [ -n "${lib_backup}" ]; then
+    cp -a "${LIB_DIR}/." "${lib_backup}/" 2>/dev/null || true
+  fi
+  _INSTALL_ROLLBACK_DIR="${lib_backup}"
   # 先装共享库与 watchdog，最后原子替换入口 sbm，保证入口加载到配套实现，
   # 且更新期间正在运行的菜单不会读到被截断的脚本。
+  local _failed=0
   for lib_file in "${root_dir}"/lib/*.sh; do
     install_atomic "$lib_file" "${LIB_DIR}/$(basename "$lib_file")" 0644 || {
       print_err "写入 $(basename "$lib_file") 失败。"
-      return 1
+      _failed=1
+      break
     }
   done
-  install_atomic "${root_dir}/metadata/upstream.env" "${UPSTREAM_ENV}" 0644 || return 1
-  install_atomic "${root_dir}/scripts/watchdog.sh" "${WATCHDOG_TARGET}" 0755 || return 1
-  install_atomic "${root_dir}/sb.sh" "${INSTALL_BIN}" 0755 || return 1
+  if [ "${_failed}" -eq 0 ]; then
+    install_atomic "${root_dir}/metadata/upstream.env" "${UPSTREAM_ENV}" 0644 || _failed=1
+  fi
+  if [ "${_failed}" -eq 0 ]; then
+    install_atomic "${root_dir}/scripts/watchdog.sh" "${WATCHDOG_TARGET}" 0755 || _failed=1
+  fi
+  if [ "${_failed}" -eq 0 ]; then
+    install_atomic "${root_dir}/sb.sh" "${INSTALL_BIN}" 0755 || _failed=1
+  fi
+  if [ "${_failed}" -ne 0 ]; then
+    if [ -n "${lib_backup}" ] && [ -d "${lib_backup}" ]; then
+      print_err "更新中断，正在回滚到更新前的实现..."
+      cp -a "${lib_backup}/." "${LIB_DIR}/" 2>/dev/null || print_err "回滚失败，请重新运行安装。"
+    fi
+    _INSTALL_ROLLBACK_DIR=""
+    rm -rf "${lib_backup}" "${tmpdir}"
+    return 1
+  fi
+  _INSTALL_ROLLBACK_DIR=""
+  rm -rf "${lib_backup}"
   sanitize_permissions
   rm -rf "${tmpdir}"
 }
@@ -236,8 +264,12 @@ install_singbox_core() {
   verify_sha256 "${archive}" "${expected}"
   tar -xzf "${archive}" -C "${tmpdir}"
   binary="$(find "${tmpdir}" -type f -name sing-box | head -n 1)"
-  [ -n "${binary}" ] || fatal "安装包中未找到 sing-box 可执行文件。"
-  install -m 0755 "${binary}" "${SINGBOX_BIN}"
+  if [ -z "${binary}" ]; then
+    rm -rf "${tmpdir}"
+    fatal "安装包中未找到 sing-box 可执行文件。"
+  fi
+  # BUG-06：内核替换走原子安装（与脚本一致），避免升级中途断电留下半个二进制。
+  install_atomic "${binary}" "${SINGBOX_BIN}" 0755
   ensure_binary_runs "${SINGBOX_BIN}" "sing-box" version
   rm -rf "${tmpdir}"
   print_ok "sing-box 已安装到 ${SINGBOX_BIN}"
@@ -396,6 +428,12 @@ update_script() {
     print_err "无法获取最新发布版本（GitHub API 与 jsdelivr 均不可用）。"
     return 1
   }
+  # BUG-06：tag 会被拼进下载 URL，必须严格校验语义化版本，防止镜像返回的
+  # 异常值（如 latest/binary）把更新指向错误资产。
+  if ! [[ "${latest_tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    print_err "检测到非法版本号：${latest_tag}，已取消更新。"
+    return 1
+  fi
   acquire_lock
   # 更新失败必须返回菜单，而不是让 fatal/exit 把交互会话一起带走
   if ! install_release_bundle "${latest_tag}"; then
@@ -404,6 +442,13 @@ update_script() {
     return 1
   fi
   sanitize_permissions
+  # BUG-06：mtp.sh 也要跟随升级。旧实现只换 sb.sh/lib，mtp 长期停留在旧版本，
+  # 新版本对 mtp 的修复永远到不了已装机队。
+  if [ -f "${LIB_DIR}/../bin/mtp" ] || [ -x /usr/local/bin/mtp ]; then
+    if [ -f "${SOURCE_ROOT:-}/mtp.sh" ]; then
+      install_atomic "${SOURCE_ROOT}/mtp.sh" /usr/local/bin/mtp 0755 || print_warn "更新 mtp.sh 失败。"
+    fi
+  fi
   cleanup_unused_cloudflared || true
   apply_network_tune || true
   # 让运行中的服务与新版本文件保持一致（配置未变时仅为快速重启）
@@ -431,10 +476,11 @@ uninstall_project() {
     stop_argo_node "${tag}"
   done < <(iter_node_tags)
 
-  stop_service || true
+  # BUG-06：卸载只能清理本实例资源。旧实现的 pkill -x darkhttpd 会顺带杀掉
+  # 宿主机上其他项目（其他管理器/静态站点）的 darkhttpd，属跨实例破坏。
   sub_stop || true
+  stop_service || true
   socks5_whitelist_cleanup || true
-  if command_exists pkill; then pkill -x darkhttpd >/dev/null 2>&1 || true; fi
 
   if systemd_available; then
     systemctl disable --now "${WATCHDOG_TIMER_NAME}" >/dev/null 2>&1 || true
@@ -450,7 +496,12 @@ uninstall_project() {
     (crontab -l 2>/dev/null | grep -Fv "${WATCHDOG_TARGET}" | grep -Fv "no crontab for" || true) | crontab -
   fi
 
-  rm -rf "${BASE_DIR}" "${LIB_DIR}" "${INSTALL_BIN}" "${SINGBOX_BIN}"
+  # BUG-06：锁文件放在数据目录内，删目录前必须先释放锁，否则退出时
+  # release_lock 会对着已删除的 fd 操作（fd 指向已删除 inode，锁状态不可回收）。
+  local lock_path="${LOCK_FILE}"
+  release_lock
+  rm -rf "${BASE_DIR}" "${LIB_DIR}" "${INSTALL_BIN}" "${SINGBOX_BIN}" "${MTP_BIN_PATH:-/usr/local/bin/mtp}"
+  rm -f "${lock_path}" 2>/dev/null || true
   print_info "保留 cloudflared（可能被其他项目共用）。"
   release_lock
   print_ok "项目已卸载。"

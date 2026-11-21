@@ -47,11 +47,22 @@ umask 077
 
 REPO_OWNER="famintt"
 REPO_NAME="Singbox-Manager"
-PROJECT_VERSION="v1.9.9"
-PACKAGE_NAME="singbox-manager-v1.9.9.tar.gz"
+PROJECT_VERSION="v1.10.0"
+PACKAGE_NAME="singbox-manager-v1.10.0.tar.gz"
 # 发布流程：scripts/build-release-bundle.sh 构建可复现 bundle，其 SHA256 与此处一致
-PACKAGE_SHA256="9f713944074ea040663da646ec5cca6a640d41af376f358bc01fb6c7389be237"
+PACKAGE_SHA256="f611b83ad218eab7951c50f9a1ec48db1615d013e7ecf22f3e011834ef6c594a"
 PACKAGE_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${PROJECT_VERSION}/${PACKAGE_NAME}"
+
+# P3：失败路径（下载中断、校验不通过、解包失败）会留下 mktemp 目录/文件；
+# 统一登记 + EXIT 清理，避免反复重试在 /tmp 堆积几十 MB 的残余包。
+CLEANUP_PATHS=()
+cleanup_paths() {
+  local _p
+  for _p in ${CLEANUP_PATHS[@]+"${CLEANUP_PATHS[@]}"}; do
+    [ -n "${_p}" ] && rm -rf "${_p}" 2>/dev/null || true
+  done
+}
+trap cleanup_paths EXIT
 
 INSTALL_BIN="/usr/local/bin/sbm"
 MTP_BIN="/usr/local/bin/mtp"
@@ -107,6 +118,7 @@ install_bundle() {
   local all_ok=0
 
   tmpdir="$(mktemp -d)"
+  CLEANUP_PATHS+=("$tmpdir")
   tar -xzf "$bundle" -C "$tmpdir"
   root_dir="$(find "$tmpdir" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
   if [ -z "$root_dir" ]; then
@@ -168,6 +180,7 @@ resolve_action() {
 main() {
   local bundle action mtp_install_done
   bundle="$(mktemp)"
+  CLEANUP_PATHS+=("$bundle")
   if ! download "${PACKAGE_URL}" "${bundle}"; then
     rm -f "${bundle}"
     echo "下载发布包失败：${PACKAGE_URL}" >&2

@@ -133,13 +133,26 @@ handle_common_error() {
   print_err "命令执行失败：${source_file}:${line_no}"
   # 事务回滚（auto_install 的 rep 窗口）：已清空旧节点但尚未提交时，
   # 失败必须恢复备份，避免停留"旧节点消失、新配置未启动"的不一致状态（F-02）
+  # A07：子 shell（$(...) / 管道 / 后台任务）继承 LOCK_HELD 与 _AUTO_ROLLBACK_DIR，
+  # 但它们不拥有事务：既不能回滚，也不能释放父进程的锁，否则父流程会在无锁下继续写状态。
+  if declare -F lock_owned_by_self >/dev/null 2>&1 && ! lock_owned_by_self; then
+    print_err "子进程失败（不持有锁，已跳过回滚与解锁）。"
+    exit "${exit_code}"
+  fi
   if [ -n "${_AUTO_ROLLBACK_DIR:-}" ] && [ -d "${_AUTO_ROLLBACK_DIR}" ]; then
     print_err "检测到未提交的 rep 事务，正在自动恢复到安装前状态..."
+    local rollback_dir="${_AUTO_ROLLBACK_DIR}"
     _AUTO_ROLLBACK_DIR=""
-    restore_latest_backup || true
+    restore_snapshot "${rollback_dir}" || restore_latest_backup || true
     reconcile_state || true
     render_config || true
     start_service || true
+    # BUG-07：Argo 隧道在 rep 一开始就被停掉了（stop_argo_node 循环）。
+    # 只恢复配置和主服务不够——隧道属于独立进程，不重启就一直是停止状态，
+    # 回滚后节点"配置在、链路不通"。
+    if declare -F restart_all_argo_nodes >/dev/null 2>&1; then
+      restart_all_argo_nodes || print_warn "回滚后重启 Argo 隧道失败，请手动执行 sbm argo restart。"
+    fi
   fi
   release_lock
   exit "${exit_code}"

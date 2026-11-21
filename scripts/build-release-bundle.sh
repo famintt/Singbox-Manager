@@ -50,4 +50,8 @@ tar --format=gnu --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
   awk -v name="${PACKAGE_NAME}" '{ print $1 "  " name }' < <(sha256sum "${PACKAGE_NAME}") >checksums.txt
 )
 
+# SUPPLY-01：install.sh 的校验值必须每次随发布重算。历史上这个文件长期停留在
+# 旧版本（仓库里那份与实际 install.sh 不符），用户按文档校验时会误判发布被篡改。
+awk -v name="install.sh" '{ print $1 "  " name }' < <(sha256sum install.sh) >install.sh.sha256
+
 echo "Built ${DIST_DIR}/${PACKAGE_NAME}"

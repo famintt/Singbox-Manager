@@ -55,6 +55,14 @@ pinned="$(grep -m1 '^PACKAGE_SHA256=' install.sh | grep -o '[a-f0-9]\{64\}')"
 [ -n "${pinned}" ] || fail "install.sh 未找到 PACKAGE_SHA256"
 [ "${actual}" = "${pinned}" ] || fail "install.sh 内嵌校验值(${pinned}) 与实际 bundle(${actual}) 不一致（注：Git-for-Windows/MSYS 对含 shebang 的脚本强制可执行位，WSL /mnt/* DrvFs 同样伪造 0777 权限且 chmod 不生效，此类主机本地构建的 lib/README 恒为 0755，无法与 Linux 构建字节对齐——属宿主限制；请在 Linux 原生文件系统或 ubuntu CI 构建）"
 
+# SUPPLY-01：若仓库里存在 install.sh.sha256，必须与当前 install.sh 一致。
+# 该文件是用户校验引导脚本的唯一依据，陈旧等于把正确发布标记成"被篡改"。
+if [ -f install.sh.sha256 ]; then
+  want="$(sha256sum install.sh | awk '{print $1}')"
+  got="$(tr -d '\r' <install.sh.sha256 | awk '{print $1}')"
+  [ "${want}" = "${got}" ] || fail "install.sh.sha256 已过期（文件 ${got:0:12}... 实际 ${want:0:12}...），请重新生成"
+fi
+
 # checksums.txt 必须是 "hash␣␣文件名" 归一化格式（无 * 二进制标记）
 expected_line="${actual}  ${bundle_name}"
 line="$(tr -d '\r' <dist/checksums.txt)"

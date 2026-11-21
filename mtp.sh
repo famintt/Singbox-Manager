@@ -19,7 +19,7 @@ set -eEuo pipefail
 #   mtp_ip_mode   监听模式 v4 / v6 / dual（可选，默认 v4）
 ###############################################################################
 
-SCRIPT_VERSION="1.9.9"
+SCRIPT_VERSION="1.10.0"
 
 # bash>=4.0 前置守卫：MTP_SHA256 关联数组与 ${!var} 间接引用在 bash 3.x 不可用，
 # 尽早失败并给出可读报错（sb.sh 侧同款要求，见 require_bash4）。
@@ -147,8 +147,10 @@ detect_init_system() {
 # 获取本机公网 IPv4/IPv6（自包含实现，不依赖外部库）
 get_public_ipv4() {
   local ip url
+  # P3：必须固定 --ipv4。api.ipify.org/ifconfig.me 是双栈的，双栈机上可能
+  # 返回 IPv6 字面量，被下面的 IPv4 字符集判断丢弃，进而误报"无公网 IPv4"。
   for url in "https://api.ipify.org" "https://ipv4.icanhazip.com" "https://ifconfig.me"; do
-    ip="$(curl -fsS --max-time 5 "$url" 2>/dev/null | tr -d '\r\n' || true)"
+    ip="$(curl -fsS --ipv4 --max-time 5 "$url" 2>/dev/null | tr -d '\r\n' || true)"
     case "$ip" in
     *[!0-9.]*) continue ;;
     esac
@@ -161,8 +163,9 @@ get_public_ipv4() {
 
 get_public_ipv6() {
   local ip url
+  # P3：同理固定 --ipv6，避免双栈机上拿到 IPv4 后误报"无公网 IPv6"。
   for url in "https://api64.ipify.org" "https://v6.ipv6-test.com/api/myip.php" "https://ifconfig.co"; do
-    ip="$(curl -fsS --max-time 5 "$url" 2>/dev/null | tr -d '\r\n' || true)"
+    ip="$(curl -fsS --ipv6 --max-time 5 "$url" 2>/dev/null | tr -d '\r\n' || true)"
     case "$ip" in
     *:*)
       printf '%s' "$ip"
@@ -174,15 +177,30 @@ get_public_ipv6() {
   return 1
 }
 
+# SEC-02：密钥/域名只在通过校验后才允许进入配置与服务模板。
+# 密钥必须恰好 32 位 hex（16 字节），否则 mtg 会启动失败或生成错误 secret。
+is_hex_secret32() {
+  [[ "${1:-}" =~ ^[0-9a-fA-F]{32}$ ]]
+}
+
+# 伪装域名只允许 RFC1123 主机名；拒绝空格、引号、分号、$() 等可进入
+# shell/systemd 模板的字符（旧实现直接把用户输入拼进 ExecStart）。
+is_safe_domain_name() {
+  local d="${1:-}"
+  [ -n "${d}" ] || return 1
+  [ "${#d}" -le 253 ] || return 1
+  [[ "${d}" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$ ]]
+}
+
 # 生成 32 位 hex 密钥（16 字节）
 generate_secret() {
   head -c 16 /dev/urandom | od -A n -t x1 | tr -d ' \n'
 }
 
 random_domain() {
-  # 用 date 纳秒对内置列表长度取模，纯 bash 无竞态
+  # BUG-05：用 $RANDOM 取模（date +%s%N 在非 GNU date 上是非法格式，会退化成 0）
   local idx
-  idx=$(($(date +%s%N) % ${#MTP_FAKE_DOMAINS[@]}))
+  idx=$((RANDOM % ${#MTP_FAKE_DOMAINS[@]}))
   printf '%s' "${MTP_FAKE_DOMAINS[$idx]}"
 }
 
@@ -234,7 +252,9 @@ mtp_tg_secret() {
   local secret="$1" domain="$2"
   local raw secret_b64
   raw="$(echo -n "${secret}" | sed 's/../\\x&/g')"
-  secret_b64="$(printf '\xee%b%b' "${raw}" "${domain}" | base64 | tr -d '\r\n' | tr '+/' '-_' | tr -d '=')"
+  # SEC-02：域名必须按字面字节写入，不能用 %b（会把 \\ 转义序列当成控制字符，
+  # 伪装域名含反斜杠时生成的 secret 与 mtg 实际使用的不一致）。
+  secret_b64="$({ printf '\xee'; printf '%b' "${raw}"; printf '%s' "${domain}"; } | base64 | tr -d '\r\n' | tr '+/' '-_' | tr -d '=')"
   printf '%s' "${secret_b64}"
 }
 
@@ -299,6 +319,7 @@ mtp_install_binary() {
     mtp_print_err "下载的 mtg-go 二进制无法执行，已放弃（可能下载到损坏文件）。"
     return 1
   fi
+  # SEC-02：同一文件系统内原子替换，避免升级中途留下半写的二进制。
   mv -f "${bin_tmp}" "${MTP_BIN_DIR}/mtg-go"
   chmod 0755 "${MTP_BIN_DIR}/mtg-go"
   mtp_print_ok "mtg-go 安装完成：${MTP_BIN_DIR}/mtg-go"
@@ -368,10 +389,14 @@ EOF
     rc-update add "${MTP_SERVICE}" default >/dev/null 2>&1 || true
     rc-service "${MTP_SERVICE}" restart
   else
-    # 无服务管理器：后台运行并写 pidfile（尽力而为）
-    nohup sh -c "${cmd_line} >>${MTP_LOG} 2>&1" >/dev/null 2>&1 &
-    echo $! >"${MTP_WORKDIR}/mtp.pid"
-    mtp_print_warn "未检测到 systemd/openrc，已用 nohup 后台运行（pid: $(cat "${MTP_WORKDIR}/mtp.pid")）。"
+    # SEC-02：直接以参数数组启动，不经 sh -c——旧实现把密钥拼进 shell 字符串，
+    # 一旦密钥/域名含 shell 元字符就会被解释执行。
+    local -a _argv=()
+    read -r -a _argv <<<"$(mtp_run_args "${port}" "${full_secret}" "${ip_mode}")"
+    nohup "${MTP_BIN_DIR}/mtg-go" "${_argv[@]}" >>"${MTP_LOG}" 2>&1 </dev/null &
+    local _real_pid=$!
+    printf '%s\n' "${_real_pid}" >"${MTP_WORKDIR}/mtp.pid"
+    mtp_print_warn "未检测到 systemd/openrc，已用 nohup 后台运行（pid: ${_real_pid}）。"
   fi
 }
 
@@ -458,6 +483,15 @@ mtp_install() {
   fi
   [ -n "${domain}" ] || domain="$(random_domain)"
   [ -n "${secret}" ] || secret="$(generate_secret)"
+  # SEC-02：先校验再落配置/服务模板，避免非法值进入 ExecStart/init 脚本。
+  if ! is_safe_domain_name "${domain}"; then
+    mtp_print_err "mtp_domain 不是合法域名：${domain}"
+    return 1
+  fi
+  if ! is_hex_secret32 "${secret}"; then
+    mtp_print_err "mtp_secret 必须是 32 位十六进制（16 字节）：${secret}"
+    return 1
+  fi
 
   case "${mtp_ip_mode:-v4}" in
   v4 | v6 | dual) ip_mode="${mtp_ip_mode:-v4}" ;;
@@ -502,9 +536,12 @@ mtp_restart() {
     if [ -f "${MTP_WORKDIR}/mtp.pid" ]; then
       kill "$(cat "${MTP_WORKDIR}/mtp.pid")" >/dev/null 2>&1 || true
     fi
-    nohup sh -c "${MTP_BIN_DIR}/mtg-go $(mtp_run_args) >>${MTP_LOG} 2>&1" >/dev/null 2>&1 &
-    echo $! >"${MTP_WORKDIR}/mtp.pid"
-    mtp_print_ok "已重启 ${MTP_SERVICE}（pid: $(cat "${MTP_WORKDIR}/mtp.pid")）。"
+    local -a _argv=()
+    read -r -a _argv <<<"$(mtp_run_args)"
+    nohup "${MTP_BIN_DIR}/mtg-go" "${_argv[@]}" >>"${MTP_LOG}" 2>&1 </dev/null &
+    local _real_pid=$!
+    printf '%s\n' "${_real_pid}" >"${MTP_WORKDIR}/mtp.pid"
+    mtp_print_ok "已重启 ${MTP_SERVICE}（pid: ${_real_pid}）。"
     ;;
   esac
 }

@@ -36,6 +36,17 @@ fi
 require_bash4
 setup_common_traps
 
+# BUG-03：watchdog 由 systemd timer / cron 直接拉起，不经过 sb.sh，
+# 因此上游客量（SINGBOX_VERSION/资产表等）必须自己加载；否则 watchdog
+# 走"内核缺失→自愈安装"分支时拿到空版本号，直接失败退出。
+if [ -n "${SOURCE_ROOT}" ] && [ -f "${SOURCE_ROOT}/metadata/upstream.env" ]; then
+  # shellcheck source=/dev/null
+  . "${SOURCE_ROOT}/metadata/upstream.env"
+elif [ -f "${LIB_DIR}/upstream.env" ]; then
+  # shellcheck source=/dev/null
+  . "${LIB_DIR}/upstream.env"
+fi
+
 start_non_systemd_singbox() {
   if [ ! -x "${SINGBOX_BIN}" ] || [ ! -f "${CONFIG_FILE}" ]; then
     return 0
@@ -65,6 +76,21 @@ start_non_systemd_singbox() {
   write_pid_file "${PID_FILE}" "$!"
 }
 
+# sing-box 进程是否在跑（systemd/openrc/PID 文件三态任一成立即算运行中）
+singbox_process_running() {
+  if systemd_available; then
+    systemctl is-active --quiet "${SERVICE_NAME}" && return 0
+    return 1
+  fi
+  if openrc_available; then
+    rc-service "${SERVICE_NAME}" status >/dev/null 2>&1 && return 0
+    return 1
+  fi
+  local pid
+  pid="$(read_pid_file "${PID_FILE}" 2>/dev/null || true)"
+  pid_matches_binary_or_alive "${pid}" "${SINGBOX_BIN}"
+}
+
 ensure_log_rotation() {
   rotate_log_file "${LOG_DIR}/sing-box.log" || true
   # cloudflared 节点日志同样按大小轮转，防止长期运行无上限增长
@@ -73,10 +99,12 @@ ensure_log_rotation() {
     [ -n "${lf}" ] || continue
     rotate_log_file "${lf}" || true
   done < <(find "${LOG_DIR}" -type f -name '*.cloudflared.log' 2>/dev/null)
-  # 1.1：cache.db 连接缓存超阈值直接清空（开心保活防膨胀；重建代价低）
+  # BUG-10：cache.db 是 sing-box 运行期打开的缓存文件；运行中直接 rm 会在
+  # 进程侧留下已删除但仍被占用的 inode（磁盘不释放、缓存继续膨胀）。
+  # 只在 sing-box 未运行时清理，运行中的膨胀留给下次重启间隙处理。
   local cache_file cache_size
   cache_file="${RUNTIME_DIR}/cache.db"
-  if [ -f "${cache_file}" ]; then
+  if [ -f "${cache_file}" ] && ! singbox_process_running; then
     cache_size="$(wc -c <"${cache_file}" 2>/dev/null | tr -d '[:space:]')"
     if [ -n "${cache_size}" ] && [ "${cache_size}" -gt $((LOG_ROTATE_SIZE_MB * 1024 * 1024)) ]; then
       rm -f "${cache_file}"
@@ -108,7 +136,7 @@ singbox_healthy() {
 # 允许达 N 次连续失败后才强制重启（失败计数在下一轮探活成功时清零）。
 # 三态语义见 singbox_probe_status：0=健康、1=假死候选、2=不适用。
 probe_fail_escalate() {
-  local restart_cmd="$1"
+  local mode="$1"
   local probe_fail_file="${RUNTIME_DIR}/probe_fail_count"
   local probe_fail probe_fail_limit
   probe_fail_limit="${SBM_PROBE_FAIL_LIMIT:-3}"
@@ -127,7 +155,23 @@ probe_fail_escalate() {
   print_warn "sing-box 连续 ${probe_fail} 次数据面探活失败，判定假死，强制重启。"
   # 1.2：重启前 dump 当前活动连接快照到运行时日志，辅助根因定位
   clash_api_dump_connections || true
-  eval "${restart_cmd}"
+  # BUG-03：不用 eval 拼接命令字符串（历史实现把命令当字符串执行，
+  # 任何变量内容都会被 shell 重新解析）。按模式直接调用固定命令。
+  case "${mode}" in
+  systemd)
+    systemctl restart "${SERVICE_NAME}" >/dev/null 2>&1 || true
+    ;;
+  openrc)
+    rc-service "${SERVICE_NAME}" restart >/dev/null 2>&1 ||
+      rc-service "${SERVICE_NAME}" start >/dev/null 2>&1 || true
+    ;;
+  *)
+    # BUG-03：非 systemd 场景先按 PID 文件杀旧实例再拉起，
+    # 否则旧进程仍占着端口，新进程绑定失败，watchdog 每分钟空转。
+    kill_pid_file "${PID_FILE}" "${SINGBOX_BIN}"
+    start_non_systemd_singbox
+    ;;
+  esac
 }
 
 ensure_singbox() {
@@ -146,7 +190,7 @@ ensure_singbox() {
       rm -f "${RUNTIME_DIR}/probe_fail_count"
       return 0
     fi
-    probe_fail_escalate "systemctl restart ${SERVICE_NAME} >/dev/null 2>&1 || true"
+    probe_fail_escalate systemd
     return 0
   fi
 
@@ -156,7 +200,7 @@ ensure_singbox() {
         rm -f "${RUNTIME_DIR}/probe_fail_count"
         return 0
       fi
-      probe_fail_escalate "rc-service ${SERVICE_NAME} restart >/dev/null 2>&1 || rc-service ${SERVICE_NAME} start >/dev/null 2>&1 || true"
+      probe_fail_escalate openrc
       return 0
     fi
     kill_pid_file "${PID_FILE}" "${SINGBOX_BIN}"
@@ -173,7 +217,7 @@ ensure_singbox() {
       rm -f "${RUNTIME_DIR}/probe_fail_count"
       return 0
     fi
-    probe_fail_escalate "rm -f \"${PID_FILE}\"; start_non_systemd_singbox"
+    probe_fail_escalate standalone
     return 0
   fi
 
@@ -183,7 +227,7 @@ ensure_singbox() {
 
 start_temp_tunnel() {
   local tag="$1"
-  local local_port pid_file log_file domain edge_ip tmp_pid
+  local local_port pid_file log_file domain tmp_pid
   local_port="$(node_value "$tag" "port")"
   pid_file="${RUNTIME_DIR}/${tag}.pid"
   log_file="${LOG_DIR}/${tag}.cloudflared.log"
@@ -202,11 +246,9 @@ start_temp_tunnel() {
   fi
   json_set_field "${NODES_FILE}" "${tag}" "endpoint_domain" "" 2>/dev/null || true
   release_lock
-  edge_ip="$(argo_edge_ip_version)"
-  # --protocol http2：压掉 QUIC 内存尖峰；追加模式写入（O_APPEND）避免轮转后稀疏文件
-  nohup "${CLOUDFLARED_BIN}" tunnel --no-autoupdate --protocol http2 --edge-ip-version "${edge_ip}" --url "http://127.0.0.1:${local_port}" \
-    >>"${log_file}" 2>&1 </dev/null &
-  tmp_pid=$!
+  # 统一封装：--protocol http2 压掉 QUIC 内存尖峰，GOMEMLIMIT/edge-ip 与主流程一致
+  launch_cloudflared "${log_file}" --url "http://127.0.0.1:${local_port}" >/dev/null
+  tmp_pid="${CLOUDFLARED_LAST_PID}"
   write_pid_file "${pid_file}" "${tmp_pid}"
 
   # 域名需通过公共 DNS 发布确认（DoH）才写入节点，防止"看似成功实则不可解析"；
@@ -240,7 +282,7 @@ start_temp_tunnel() {
 
 start_token_tunnel() {
   local tag="$1"
-  local token pid_file log_file edge_ip
+  local token pid_file log_file
   token="$(secret_value "$tag" "argo_token")"
   if [ -z "${token}" ]; then
     print_warn "节点 ${tag} 的 Argo Token 为空，已跳过启动。"
@@ -251,11 +293,9 @@ start_token_tunnel() {
 
   : >"${log_file}"
   chmod 600 "${log_file}"
-  edge_ip="$(argo_edge_ip_version)"
   # token 经环境变量传入，避免明文出现在进程命令行（ps 可见）
-  TUNNEL_TOKEN="${token}" nohup "${CLOUDFLARED_BIN}" tunnel --no-autoupdate --protocol http2 --edge-ip-version "${edge_ip}" run \
-    >>"${log_file}" 2>&1 </dev/null &
-  write_pid_file "${pid_file}" "$!"
+  TUNNEL_TOKEN="${token}" launch_cloudflared "${log_file}" run >/dev/null
+  write_pid_file "${pid_file}" "${CLOUDFLARED_LAST_PID}"
 }
 
 ensure_argo_nodes() {
@@ -373,6 +413,11 @@ fi
 ensure_log_rotation
 reconcile_state || true
 ensure_singbox
+# SEC-04：SOCKS5 白名单的 INPUT 跳转不随服务重启恢复（宿主重启、systemd restart
+# 都会丢），而 sing-box 一起来就已经在监听。watchdog 每分钟补一次，把暴露窗口
+# 压到一分钟内；这不是零暴露保证（要零暴露需宿主级持久化或命名 unit 的
+# ExecStartPost，见 README 的运维说明）。
+socks5_whitelist_apply || true
 reapply_net_tune_qdisc || true
 ensure_argo_nodes
 ensure_sub || true

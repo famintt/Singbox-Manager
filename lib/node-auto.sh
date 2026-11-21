@@ -49,13 +49,20 @@ tls_sni_auto() {
       printf '%s' "${fallback}"
       return 0
     fi
-    if [ -n "${TLS_SNI_AUTO_CACHE:-}" ]; then
-      printf '%s' "${TLS_SNI_AUTO_CACHE}"
+    # BUG-07：tls_sni_auto 总在 $(...) 子 shell 里调用，赋值 TLS_SNI_AUTO_CACHE
+    # 只活在那个子 shell，父进程永远读不到 → 每次调用都重新探测（rep 一次要探
+    # 四遍，最坏几分钟）。改为写运行时缓存文件，跨子 shell 生效。
+    local cache_file="${RUNTIME_DIR}/tls_sni_auto.cache"
+    if [ -s "${cache_file}" ]; then
+      head -n 1 "${cache_file}"
       return 0
     fi
     print_info "正在检测 TLS SNI（TLS 1.3 + HTTP/2，自签证书）..." >&2
-    TLS_SNI_AUTO_CACHE="$(detect_sni_best 2>/dev/null || printf '%s' "${fallback}")"
-    printf '%s' "${TLS_SNI_AUTO_CACHE}"
+    local detected
+    detected="$(TLS_SNI_AUTO_CACHE="" detect_sni_best 2>/dev/null || printf '%s' "${fallback}")"
+    [ -n "${detected}" ] || detected="${fallback}"
+    printf '%s\n' "${detected}" >"${cache_file}" 2>/dev/null || true
+    printf '%s' "${detected}"
     ;;
   *)
     env_domain_or_default "${key}" "${fallback}"
@@ -698,7 +705,7 @@ auto_install() {
   if [ "${added}" -eq 0 ]; then
     _AUTO_ROLLBACK_DIR=""
     if [ "${action}" = "rep" ]; then
-      restore_latest_backup || true
+      restore_snapshot "${backup_dir:-}" || restore_latest_backup || true
       reconcile_state || true
       render_config || true
       start_service || true
@@ -713,17 +720,18 @@ auto_install() {
   if [ "${action}" = "rep" ]; then
     cleanup_orphan_certs
   fi
-  render_config
-  reload_service
-  # 事务已提交：清除回滚标记，此后失败不再触发整事务回滚
-  _AUTO_ROLLBACK_DIR=""
-  # v1.9.7：自动放行节点端口（Oracle 官方镜像 iptables 默认 REJECT 入站，
-  # 节点装好却外网不可达）。best-effort；auto_fw=0/off/no 关闭。
-  # 仅放行实际写入成功的节点端口——被占用跳过的端口不动别人的服务
+  # A02：防火墙必须先于监听。旧顺序是 render→reload（端口已 listen）之后才放行，
+  # 中间存在"服务在跑但入站被 REJECT"的窗口，也给了并发探测暴露面。
+  # best-effort；auto_fw=0/off/no 关闭。仅放行实际写入成功的节点端口——
+  # 被占用跳过的端口不动别人的服务。
   case "$(env_var "auto_fw")" in
   0 | off | no | false) ;;
   *) [ "${#added_specs[@]}" -gt 0 ] && fw_auto_open_specs "${added_specs[@]}" ;;
   esac
+  render_config
+  reload_service
+  # 事务已提交：清除回滚标记，此后失败不再触发整事务回滚
+  _AUTO_ROLLBACK_DIR=""
   # 隧道启动失败（如临时域名等待超时）不应判定整次安装失败
   restart_all_argo_nodes || print_warn "部分 Argo 隧道启动失败，稍后可用 sbm list 重查域名。"
   cleanup_unused_cloudflared || true
@@ -731,13 +739,19 @@ auto_install() {
   case "$(env_var "sub")" in
   1 | on | yes | true) set_setting "sub_enabled" "1" || true ;;
   esac
+  # BUG-07：未显式传 sub_mode 时不得把已有 worker 配置覆写成 temp（重装一次
+  # 就丢掉固定订阅域名），仅在显式传入时切换模式。
   case "$(env_var "sub_mode")" in
   worker)
     set_setting "sub_mode" "worker" || true
     set_setting "sub_domain" "$(env_var "sub_domain")" || true
     set_setting "sub_token" "$(env_var "sub_token")" || true
+    [ -n "$(env_var "sub_report_token")" ] && set_setting "sub_report_token" "$(env_var "sub_report_token")" || true
+    [ -n "$(env_var "sub_read_token")" ] && set_setting "sub_read_token" "$(env_var "sub_read_token")" || true
     set_setting "sub_machine" "$(env_var "sub_machine")" || true
     ;;
+  temp) set_setting "sub_mode" "temp" || true ;;
+  "") ;;
   *) set_setting "sub_mode" "temp" || true ;;
   esac
   if sub_enabled; then

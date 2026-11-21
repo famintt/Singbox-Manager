@@ -8,6 +8,9 @@ build_share_link() {
   local public_ip="${2:-}"
   local protocol name port host uuid password username fp
   local reality_server public_key short_id ws_path preferred_domain endpoint_domain host_domain tls_server cert_mode ws_mode cdn_port cdn_sni ext certificate_path fp insecure_flag
+  # P3：命令替换里 read 出来的局部变量必须显式声明，否则会泄漏成全局变量，
+  # 在批量生成多条链接时互相覆盖（曾导致 CDN 链接串用上一条的 sni/path）。
+  local cdn_sni_enc cdn_sni_enc2 ws_path_enc sni_enc host_enc password_enc name_enc
 
   # 单次 jq 批量取出全部字段（nodes+secrets），替代逐字段 node_value/secret_value
   # 的多次 jq 进程（每次 sbm list/sub 对每个节点可省十次左右 jq 启动）
@@ -170,9 +173,20 @@ EOF
       print_warn "节点 ${tag} 的 Argo 域名尚未分配（隧道可能未连上），链接暂不可用；稍后重试 sbm list。"
       return 0
     fi
+    # 连接地址可用优选域名（preferred_domain）；未配置时回退隧道域名本身。
+    # SNI/Host 必须是回源域名，否则 Cloudflare 边缘找不到 ingress。
+    local argo_target="${preferred_domain:-${endpoint_domain}}"
+    {
+      read -r _argo_sni_enc
+      read -r _argo_sni_enc2
+      read -r _argo_path_enc
+      read -r _argo_name_enc
+    } <<EOF
+$(url_encode_many "${endpoint_domain}" "${endpoint_domain}" "${ws_path}" "${name}")
+EOF
     printf 'vless://%s@%s:%s?encryption=none&security=tls&sni=%s&type=ws&host=%s&path=%s#%s' \
-      "$uuid" "$(wrap_host "$preferred_domain")" "$cdn_port" \
-      "$(url_encode "$endpoint_domain")" "$(url_encode "$endpoint_domain")" "$(url_encode "$ws_path")" "$(url_encode "$name")"
+      "$uuid" "$(wrap_host "${argo_target}")" "$cdn_port" \
+      "${_argo_sni_enc}" "${_argo_sni_enc2}" "${_argo_path_enc}" "${_argo_name_enc}"
     ;;
   tuic-v5)
     # 证书不覆盖链接 SNI（自签或自定义+伪装 SNI）时 allow_insecure=1 跳过校验

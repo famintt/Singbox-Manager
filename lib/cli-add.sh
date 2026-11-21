@@ -33,13 +33,14 @@ EOF
 
 random_free_port() {
   local p
+  # BUG-04：复用 port_available（含元数据端口与 TCP+UDP 双查），
+  # 旧实现只看 TCP 监听，可能返回一个正被 TUIC/HY2 占用的 UDP 端口。
   for _ in 1 2 3 4 5 6 7 8 9 10; do
     p=$(( (RANDOM * 32768 + RANDOM) % 50000 + 10000 ))
-    if command -v ss >/dev/null 2>&1 && ss -ltn 2>/dev/null | grep -q "[:.]${p} "; then
-      continue
+    if port_available "${p}"; then
+      printf '%s' "${p}"
+      return 0
     fi
-    printf '%s' "${p}"
-    return 0
   done
   printf '%s' "443"
 }
@@ -206,10 +207,10 @@ cli_doctor() {
   local fail=0
   init_storage
   printf '== %s doctor ==\n' "${SCRIPT_VERSION}"
-  if [ -x "${SINGBOX_BIN:-${MIHOMO_BIN:-}}" ]; then
+  if [ -x "${SINGBOX_BIN}" ]; then
     print_ok "内核可执行"
   else
-    print_err "内核不可执行：${SINGBOX_BIN:-${MIHOMO_BIN:-}}"
+    print_err "内核不可执行：${SINGBOX_BIN}"
     fail=1
   fi
   if [ -s "${CONFIG_FILE}" ]; then
@@ -218,10 +219,9 @@ cli_doctor() {
     print_err "配置文件缺失：${CONFIG_FILE}"
     fail=1
   fi
-  if [ -x "${SINGBOX_BIN:-${MIHOMO_BIN:-}}" ] && [ -s "${CONFIG_FILE}" ]; then
-    if [ -n "${SINGBOX_BIN:-}" ] && "${SINGBOX_BIN}" check -c "${CONFIG_FILE}" >/dev/null 2>&1; then
-      print_ok "配置校验通过"
-    elif [ -n "${MIHOMO_BIN:-}" ] && "${MIHOMO_BIN}" -t -d "${BASE_DIR}" -f "${CONFIG_FILE}" >/dev/null 2>&1; then
+  if [ -x "${SINGBOX_BIN}" ] && [ -s "${CONFIG_FILE}" ]; then
+    # P3：本项目只有 sing-box 内核，mihomo -t 分支是 sbm 之外的残留，永远不可达
+    if "${SINGBOX_BIN}" check -c "${CONFIG_FILE}" >/dev/null 2>&1; then
       print_ok "配置校验通过"
     else
       print_err "配置校验失败"
@@ -260,28 +260,37 @@ cli_fw() {
   shift || true
   while [ "$#" -gt 0 ]; do
     case "$1" in
-      --port) port="${2:-}"; shift 2 ;;
-      --proto) proto="${2:-}"; shift 2 ;;
+      --port)
+        # BUG-04：$# < 2 时 shift 2 会失败并触发 ERR 陷阱（脚本直接退出）
+        [ "$#" -ge 2 ] || { print_err "--port 缺少参数值"; return 2; }
+        port="$2"
+        shift 2
+        ;;
+      --proto)
+        [ "$#" -ge 2 ] || { print_err "--proto 缺少参数值"; return 2; }
+        proto="$2"
+        shift 2
+        ;;
       -h|--help) cli_fw_usage; return 0 ;;
       *) print_err "未知参数：$1"; cli_fw_usage; return 2 ;;
     esac
   done
   case "${cmd}" in
     list)
-      if command -v ufw >/dev/null 2>&1; then ufw status
+      if [ "$(fw_backend)" = "ufw" ]; then ufw status
       elif command -v firewall-cmd >/dev/null 2>&1; then firewall-cmd --list-all
       elif command -v iptables >/dev/null 2>&1; then iptables -S INPUT
       else print_warn "未检测到 ufw/firewalld/iptables"; return 0
       fi
       ;;
     open|close)
-      [[ "${port}" =~ ^[0-9]+$ ]] || { print_err "缺少有效 --port"; return 2; }
+      [[ "${port}" =~ ^[0-9]+$ ]] && [ "${port}" -ge 1 ] && [ "${port}" -le 65535 ] ||
+        { print_err "--port 必须是 1-65535 的整数"; return 2; }
       case "${proto}" in tcp|udp) ;; *) print_err "--proto 仅支持 tcp/udp"; return 2 ;; esac
       if fw_apply_port "${cmd}" "${proto}" "${port}"; then
-        # 裸 iptables 路径（ufw/firewalld 都不可用）需提示持久化
-        if ! { command -v ufw >/dev/null 2>&1 && ufw status >/dev/null 2>&1; } &&
-          ! { command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; }; then
-          print_warn "裸 iptables 规则不会自动持久化，请自行保存。"
+        # 只有裸 iptables 后端需要提示持久化（ufw/firewalld 自带持久化）
+        if [ "$(fw_backend)" = "iptables" ]; then
+          print_warn "裸 iptables 规则不会自动持久化，请自行保存（iptables-save）。"
         fi
         print_ok "防火墙${cmd}：${port}/${proto}"
       else

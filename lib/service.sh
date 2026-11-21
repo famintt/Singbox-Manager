@@ -211,14 +211,19 @@ SystemCallFilter=@system-service
 SystemCallFilter=~@chown
 SystemCallFilter=~@privileged
 SystemCallErrorNumber=EPERM
-CapabilityBoundingSet=CAP_NET_BIND_SERVICE CAP_NET_RAW
+# SEC-03：只需要绑定特权端口；CAP_NET_RAW 对代理进程非必需，收窄以降低被利用面。
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
 OOMPolicy=kill
 OOMScoreAdjust=-100
 RestartSteps=10
 RestartSec=3
 MemorySwapMax=0
-ReadWritePaths=${BASE_DIR} ${LIB_DIR}
+# SEC-03：ProtectSystem=strict 下只有显式列出的路径可写。旧值 ReadWritePaths=${BASE_DIR}
+# 让节点/密钥/证书整个数据目录都可写；运行期其实只需要日志与 runtime。
+# ReadOnlyPaths 显式声明配置与证书仍需可读（strict 已只读，这里固定语义，避免以后放宽）。
+ReadOnlyPaths=${CONFIG_FILE} ${CERT_DIR}
+ReadWritePaths=${LOG_DIR} ${RUNTIME_DIR}
 
 [Install]
 WantedBy=multi-user.target
@@ -351,6 +356,14 @@ service_state() {
   fi
 }
 
+# SEC-04：白名单开关的唯一判定入口（安装期放行、启动期应用、watchdog 补白名单共用）。
+socks5_whitelist_enabled() {
+  case "$(manager_env_or_setting "socks5_wl_flag" "")" in
+  true | 1 | yes | on) return 0 ;;
+  esac
+  return 1
+}
+
 socks5_whitelist_cleanup() {
   local chain="SBM_SOCKS5_WL" ipt nums n
   command_exists iptables || return 0
@@ -369,12 +382,11 @@ socks5_whitelist_cleanup() {
 
 # 仅用 iptables 做源地址白名单；没有 iptables 的环境只告警，不影响节点本身。
 socks5_whitelist_apply() {
-  local enabled ips ip port tag proto chain="SBM_SOCKS5_WL" ipt
-  enabled="$(manager_env_or_setting "socks5_wl_flag" "")"
-  case "${enabled,,}" in
-  true | 1 | yes | on) ;;
-  *) socks5_whitelist_cleanup; return 0 ;;
-  esac
+  local ips ip port tag proto chain="SBM_SOCKS5_WL" ipt
+  if ! socks5_whitelist_enabled; then
+    socks5_whitelist_cleanup
+    return 0
+  fi
   if ! command_exists iptables; then
     print_warn "socks5 白名单需要 iptables，当前系统不可用，未应用。"
     return 0
@@ -392,7 +404,13 @@ socks5_whitelist_apply() {
     "${ipt}" -F "${chain}" >/dev/null 2>&1 || true
     for ip in ${ips//,/ }; do
       [ -n "${ip}" ] || continue
-      "${ipt}" -A "${chain}" -s "${ip}" -j ACCEPT >/dev/null 2>&1 || true
+      # SEC-04：逐条校验，非法条目直接拒绝写入（旧实现把任意字符串塞给 iptables，
+      # 失败后静默忽略，白名单可能只剩默认 DROP 而用户以为已放行自己的地址）。
+      if ! is_valid_ip_or_cidr "${ip}"; then
+        print_warn "socks5_ips 中的 ${ip} 不是合法 IP/CIDR，已跳过。"
+        continue
+      fi
+      "${ipt}" -A "${chain}" -s "${ip}" -j ACCEPT >/dev/null 2>&1 || print_warn "${ipt} 添加白名单 ${ip} 失败。"
     done
     "${ipt}" -A "${chain}" -j DROP >/dev/null 2>&1 || true
   done
@@ -404,7 +422,11 @@ socks5_whitelist_apply() {
     [[ "${port}" =~ ^[0-9]+$ ]] || continue
     for ipt in iptables ip6tables; do
       command_exists "${ipt}" || continue
-      "${ipt}" -I INPUT -p tcp --dport "${port}" -m comment --comment "sbm_socks5_wl" -j "${chain}" >/dev/null 2>&1 || true
+      # A02：白名单跳转必须插到 INPUT 最前面，先于 sbm_fw 的无条件 ACCEPT；
+      # 同时清掉该端口历史上可能残留的无条件 ACCEPT，避免绕过白名单。
+      "${ipt}" -D INPUT -p tcp --dport "${port}" -m comment --comment "sbm_fw" -j ACCEPT >/dev/null 2>&1 || true
+      "${ipt}" -I INPUT 1 -p tcp --dport "${port}" -m comment --comment "sbm_socks5_wl" -j "${chain}" >/dev/null 2>&1 ||
+        print_warn "${ipt} 未能为 SOCKS5 ${port} 安装白名单跳转。"
     done
   done < <(iter_node_tags)
 }

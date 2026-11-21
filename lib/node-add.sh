@@ -127,6 +127,9 @@ add_vless_ws_tls() {
   preferred_domain="$(prompt_cdn_domain)"
   host_domain="$(prompt_safe_domain "Host/SNI 域名" "${DEFAULT_TLS_SERVER}")"
   ws_path="$(prompt_with_default "WebSocket 路径" "$(random_ws_path)")"
+  # P3：路径必须是绝对路径；用户输入 abc 时旧实现原样落库，
+  # 服务端与分享链接都拿到 "abc"，客户端拼出的 URL 不含分隔斜杠。
+  ws_path="/${ws_path#/}"
   cert_bundle="$(prompt_certificate_bundle "$tag" "$host_domain")"
   cert_mode="${cert_bundle%%|*}"
   cert_file="${cert_bundle#*|}"
@@ -315,6 +318,7 @@ add_vless_argo() {
   uuid="${uuid:-$(generate_uuid)}"
   preferred_domain="$(prompt_cdn_domain)"
   ws_path="$(prompt_with_default "WebSocket 路径" "$(random_ws_path)")"
+  ws_path="/${ws_path#/}"
   argo_mode="$(prompt_choice "隧道模式 (temp/token)" "temp")"
   if [ "${argo_mode}" = "token" ]; then
     argo_token="$(prompt_nonempty "Cloudflared 隧道 Token")"

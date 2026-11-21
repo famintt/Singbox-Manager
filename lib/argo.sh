@@ -324,9 +324,28 @@ stop_argo_node() {
   kill_pid_file "${BASE_DIR}/runtime/${tag}.pid" "${CLOUDFLARED_BIN}"
 }
 
+# BUG-10：所有 cloudflared 启动点（节点隧道 / 订阅隧道 / watchdog）共用同一封装，
+# 统一补 GOMEMLIMIT 与 --edge-ip-version，避免三处各写一遍导致参数漂移
+# （历史事故：watchdog 拉起时漏了 edge-ip 参数，双栈机重新回落到不通的 IPv6 边缘）。
+# 调用方通过 CLOUDFLARED_LAST_PID 取子进程 PID。
+launch_cloudflared() {
+  local log_file="$1"
+  shift
+  local -a argv=("${CLOUDFLARED_BIN}" tunnel --no-autoupdate --protocol http2 --edge-ip-version "$(argo_edge_ip_version)")
+  local mem_limit
+  mem_limit="$(go_mem_limit_value 2>/dev/null || true)"
+  if [ -n "${mem_limit}" ]; then
+    nohup env GOMEMLIMIT="${mem_limit}" "${argv[@]}" "$@" >>"${log_file}" 2>&1 </dev/null &
+  else
+    nohup "${argv[@]}" "$@" >>"${log_file}" 2>&1 </dev/null &
+  fi
+  CLOUDFLARED_LAST_PID=$!
+  printf '%s' "${CLOUDFLARED_LAST_PID}"
+}
+
 start_argo_node() {
   local tag="$1"
-  local mode port token log_file pid_file domain edge_ip
+  local mode port token log_file pid_file domain
 
   [ -x "${CLOUDFLARED_BIN}" ] || install_cloudflared_bin
   mode="$(node_value "$tag" "argo_mode")"
@@ -350,10 +369,8 @@ start_argo_node() {
   if [ "${mode}" = "token" ]; then
     token="$(secret_value "$tag" "argo_token")"
     # token 经环境变量传入，避免明文出现在进程命令行（ps 可见）
-    # --protocol http2：压掉 QUIC 内存尖峰（30-50MB → 25-40MB），小内存机更稳
-    TUNNEL_TOKEN="${token}" nohup "${CLOUDFLARED_BIN}" tunnel --no-autoupdate --protocol http2 --edge-ip-version "${edge_ip}" run \
-      >>"${log_file}" 2>&1 </dev/null &
-    write_pid_file "${pid_file}" "$!"
+    TUNNEL_TOKEN="${token}" launch_cloudflared "${log_file}" run >/dev/null
+    write_pid_file "${pid_file}" "${CLOUDFLARED_LAST_PID}"
     # L13：token 模式下 cloudflared 全程静默（无 trycloudflare 域名可展示），
     # 对 endpoint_domain:443 快速探测一次给安装者即时反馈；刚启动时公网解析未就绪
     # 属正常，仅告警不阻断。
@@ -365,9 +382,8 @@ start_argo_node() {
     return 0
   fi
 
-  nohup "${CLOUDFLARED_BIN}" tunnel --no-autoupdate --protocol http2 --edge-ip-version "${edge_ip}" --url "http://127.0.0.1:${port}" \
-    >>"${log_file}" 2>&1 </dev/null &
-  local _pid=$!
+  launch_cloudflared "${log_file}" --url "http://127.0.0.1:${port}" >/dev/null
+  local _pid="${CLOUDFLARED_LAST_PID}"
   write_pid_file "${pid_file}" "${_pid}"
 
   # 等待域名出现且确认公共 DNS 已发布（DoH 核验，防"看似成功实则不可解析"）；

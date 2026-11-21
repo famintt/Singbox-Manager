@@ -92,6 +92,10 @@ write_net_tune_sysctl_file() {
     echo "net.ipv4.tcp_congestion_control=bbr"
     # 容器/精简内核可能根本没有 default_qdisc 节点，写进去会在 sysctl -p 时报错
     [ -e /proc/sys/net/core/default_qdisc ] && echo "net.core.default_qdisc=fq"
+    # BUG-09：只调 tcp_wmem/tcp_rmem 的上限无效——内核同时受 core.wmem_max/rmem_max
+    # 约束，二者不放开时 socket 缓冲区仍被钳在默认 208KB。
+    echo "net.core.wmem_max=${NET_TUNE_TCP_WMEM_MAX}"
+    echo "net.core.rmem_max=${NET_TUNE_TCP_RMEM_MAX}"
     echo "net.ipv4.tcp_wmem=4096 16384 ${NET_TUNE_TCP_WMEM_MAX}"
     echo "net.ipv4.tcp_rmem=4096 131072 ${NET_TUNE_TCP_RMEM_MAX}"
     echo "net.ipv4.tcp_limit_output_bytes=${NET_TUNE_TCP_LIMIT_OUTPUT_BYTES}"
@@ -112,6 +116,8 @@ write_net_tune_sysctl_file() {
 apply_sysctls() {
   local ok=true err=""
   local -a keys=(
+    net.core.wmem_max "${NET_TUNE_TCP_WMEM_MAX}"
+    net.core.rmem_max "${NET_TUNE_TCP_RMEM_MAX}"
     net.ipv4.tcp_congestion_control bbr
     net.ipv4.tcp_wmem "4096 16384 ${NET_TUNE_TCP_WMEM_MAX}"
     net.ipv4.tcp_rmem "4096 131072 ${NET_TUNE_TCP_RMEM_MAX}"
@@ -140,7 +146,8 @@ apply_sysctls() {
   fi
 
   if [ "${ok}" = "true" ]; then
-    print_ok "已应用 BBR + fq + 32MB TCP 缓冲（tcp_limit_output_bytes=${NET_TUNE_TCP_LIMIT_OUTPUT_BYTES}）。"
+    # P3：不再硬编码 "32MB"，缓冲值可被 env/设置改写，日志要反映实际生效值
+    print_ok "已应用 BBR + fq + TCP 缓冲（rmem_max=$((NET_TUNE_TCP_RMEM_MAX / 1024 / 1024))MB wmem_max=$((NET_TUNE_TCP_WMEM_MAX / 1024 / 1024))MB tcp_limit_output_bytes=${NET_TUNE_TCP_LIMIT_OUTPUT_BYTES}）。"
   else
     print_warn "部分 sysctl 写入失败：${err}（容器/精简内核可能限制网络参数，其余项已生效）。"
   fi

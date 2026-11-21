@@ -10,6 +10,9 @@ umask 077
 #   - 不占用 NAT 机的公网端口：本地端口仅 loopback，公网走 Cloudflare 443。
 
 sub_dir() { printf '%s/sub' "${BASE_DIR}"; }
+# SEC-01：公网静态服务只暴露 public 子目录。token、links.txt、url、.report-* 这些
+# 含凭据/明文节点的文件必须留在 0700 的私有目录里，不能与 index.html 同目录对外。
+sub_public_dir() { printf '%s/public' "$(sub_dir)"; }
 sub_url_file() { printf '%s/url' "$(sub_dir)"; }
 sub_http_log() { printf '%s/sub-http.log' "${LOG_DIR}"; }
 sub_tunnel_log() { printf '%s/sub.cloudflared.log' "${LOG_DIR}"; }
@@ -43,8 +46,34 @@ sub_worker_base() {
   printf '%s' "${base%/}"
 }
 
-sub_worker_token() {
+# A05：上报（写）与订阅读取（读）分离。只给读取方 sub_read_token 时，
+# 拿到该 token 的人不能反向覆盖/篡改本机上报内容。
+sub_report_token() {
+  local t
+  t="$(manager_env_or_setting "sub_report_token" "")"
+  [ -n "${t}" ] && {
+    printf '%s' "${t}"
+    return 0
+  }
   manager_env_or_setting "sub_token" ""
+}
+
+sub_read_token() {
+  local t
+  t="$(manager_env_or_setting "sub_read_token" "")"
+  [ -n "${t}" ] && {
+    printf '%s' "${t}"
+    return 0
+  }
+  manager_env_or_setting "sub_token" ""
+}
+
+sub_worker_token() {
+  sub_report_token
+}
+
+sub_token_is_split() {
+  [ -n "${SUB_REPORT_TOKEN:-}" ] && [ -n "${SUB_READ_TOKEN:-}" ]
 }
 
 sub_machine() {
@@ -77,9 +106,12 @@ sub_report() {
   }
   token="$(sub_worker_token)"
   [ -n "${token}" ] || {
-    print_err "订阅设置缺少密钥（sub_token）。"
+    print_err "订阅设置缺少上报密钥（sub_report_token 或 sub_token）。"
     return 1
   }
+  if [ -z "${SUB_REPORT_TOKEN:-}" ] && [ -z "${SUB_READ_TOKEN:-}" ]; then
+    print_warn "当前仅配置了单一 sub_token（读写同权）。建议分别设置 sub_report_token/sub_read_token。"
+  fi
   machine="$(sub_machine)"
   file="$(sub_file)"
   [ -s "${file}" ] || {
@@ -151,8 +183,9 @@ sub_token() {
   printf '%s' "${token}"
 }
 
+# 对外发布体放在 public 子目录；HTTP 服务根目录即该目录。
 sub_file() {
-  printf '%s/%s.txt' "$(sub_dir)" "$(sub_token)"
+  printf '%s/%s.txt' "$(sub_public_dir)" "$(sub_token)"
 }
 
 # 明文节点链接是订阅的唯一可信源；<token>.txt 只是由它派生出的 base64 上传体。
@@ -162,9 +195,11 @@ sub_links_file() {
 
 # 生成订阅内容：节点链接一行一个，再整体 base64（订阅客户端标准格式）。
 sub_build_file() {
-  local dir token tmp links_tmp public_ip tag link
+  local dir pub token tmp links_tmp public_ip tag link
   dir="$(sub_dir)"
+  pub="$(sub_public_dir)"
   ensure_dir_mode "${dir}" 700
+  ensure_dir_mode "${pub}" 700
   token="$(sub_token)"
   # 串行探测：避免在部分 Alpine/Bash 组合下，命令替换内的并行 wait 反复空转。
   if [ -n "$(manager_env_or_setting "direct_host" "")" ] || [ -n "$(manager_env_or_setting "server_ip" "")" ]; then
@@ -172,7 +207,7 @@ sub_build_file() {
   else
     public_ip="$(SBM_IP_PROBE_PARALLEL=0 get_public_ip 2>/dev/null || true)"
   fi
-  tmp="$(mktemp "${dir}/.sub.XXXXXX")" || return 1
+  tmp="$(mktemp "${pub}/.sub.XXXXXX")" || return 1
   links_tmp="$(mktemp "${dir}/.links.XXXXXX")" || {
     rm -f "${tmp}"
     return 1
@@ -193,38 +228,64 @@ sub_build_file() {
   printf '\n' >>"${tmp}"
   chmod 600 "${tmp}" "${links_tmp}"
   mv -f "${links_tmp}" "${dir}/links.txt"
-  mv -f "${tmp}" "${dir}/${token}.txt"
-  chmod 600 "${dir}/links.txt" "${dir}/${token}.txt"
+  mv -f "${tmp}" "${pub}/${token}.txt"
+  chmod 600 "${dir}/links.txt" "${pub}/${token}.txt"
+  # 私有目录里不应残留旧版放在同一层的上传体
+  rm -f "${dir}/${token}.txt" 2>/dev/null || true
+  return 0
+}
+
+# SEC-01/BUG-10：确认 PID 确实是本实例的静态服务（darkhttpd/python http.server）
+# 且仍监听我们的 loopback 端口，避免 PID 复用误杀或把旧服务当成已启动。
+sub_http_process_ok() {
+  local pid="$1" port="$2" cmdline=""
+  [ -n "${pid}" ] || return 1
+  kill -0 "${pid}" 2>/dev/null || return 1
+  if [ -d /proc ]; then
+    cmdline="$(tr '\0' ' ' <"/proc/${pid}/cmdline" 2>/dev/null || true)"
+    case "${cmdline}" in
+    *darkhttpd* | *http.server*) ;;
+    *) return 1 ;;
+    esac
+    case "${cmdline}" in
+    *"${port}"*) ;;
+    *) return 1 ;;
+    esac
+  fi
   return 0
 }
 
 sub_http_start() {
-  local dir port log pid_file pid
+  local dir pub port log pid_file pid
   dir="$(sub_dir)"
+  pub="$(sub_public_dir)"
   port="$(sub_local_port)"
   log="$(sub_http_log)"
   pid_file="$(sub_http_pid_file)"
   ensure_dir_mode "${dir}" 700
+  ensure_dir_mode "${pub}" 700
   ensure_dir_mode "${LOG_DIR}" 700
   ensure_dir_mode "${RUNTIME_DIR}" 700
   # 防止目录列表泄露 token 文件名（darkhttpd 在无 index 时会列目录）
-  printf 'not found\n' >"${dir}/index.html"
-  chmod 600 "${dir}/index.html"
+  printf 'not found\n' >"${pub}/index.html"
+  chmod 600 "${pub}/index.html"
 
   pid="$(read_pid_file "${pid_file}" 2>/dev/null || true)"
-  if [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null; then
+  if sub_http_process_ok "${pid}" "${port}"; then
     return 0
   fi
+  # 旧实例（含上一版本把整个 sub/ 目录暴露出去的进程）先停掉，再以 public 根启动
+  [ -n "${pid}" ] && kill_pid_file "${pid_file}" "" >/dev/null 2>&1 || true
 
   if ! command_exists darkhttpd && command_exists apk; then
     apk add --no-cache darkhttpd >/dev/null 2>&1 || true
   fi
 
   if command_exists darkhttpd; then
-    nohup darkhttpd "${dir}" --port "${port}" --addr 127.0.0.1 \
+    nohup darkhttpd "${pub}" --port "${port}" --addr 127.0.0.1 \
       >>"${log}" 2>&1 </dev/null &
   elif command_exists python3; then
-    nohup python3 -m http.server "${port}" --bind 127.0.0.1 --directory "${dir}" \
+    nohup python3 -m http.server "${port}" --bind 127.0.0.1 --directory "${pub}" \
       >>"${log}" 2>&1 </dev/null &
   else
     print_err "订阅服务需要 darkhttpd 或 python3，当前系统均不可用。"
@@ -233,7 +294,7 @@ sub_http_start() {
   pid=$!
   write_pid_file "${pid_file}" "${pid}"
   sleep 1
-  if ! kill -0 "${pid}" 2>/dev/null; then
+  if ! sub_http_process_ok "${pid}" "${port}"; then
     rm -f "${pid_file}"
     print_err "订阅 HTTP 服务启动失败，日志：${log}"
     return 1
@@ -263,9 +324,8 @@ sub_tunnel_start() {
 
   : >"${log}"
   chmod 600 "${log}"
-  nohup "${CLOUDFLARED_BIN}" tunnel --no-autoupdate --protocol http2 \
-    --url "http://127.0.0.1:${port}" >>"${log}" 2>&1 </dev/null &
-  pid=$!
+  launch_cloudflared "${log}" --url "http://127.0.0.1:${port}" >/dev/null
+  pid="${CLOUDFLARED_LAST_PID}"
   write_pid_file "${pid_file}" "${pid}"
   # 订阅隧道只用于测试分发，域名出现在 cloudflared 日志即可；跳过 DoH
   # 发布核验，避免弱网/NAT DNS 与 Bash 子 shell wait 组合卡住。
@@ -301,8 +361,16 @@ sub_start() {
 }
 
 sub_stop() {
+  # 只停本实例记录在案的进程（PID 文件 + 命令行/端口核验），不做全机 pkill。
+  local pid port
+  pid="$(read_pid_file "$(sub_http_pid_file)" 2>/dev/null || true)"
+  port="$(sub_local_port)"
+  if sub_http_process_ok "${pid}" "${port}"; then
+    kill_pid_file "$(sub_http_pid_file)" "" >/dev/null 2>&1 || true
+  else
+    rm -f "$(sub_http_pid_file)"
+  fi
   kill_pid_file "$(sub_tunnel_pid_file)" "${CLOUDFLARED_BIN}" >/dev/null 2>&1 || true
-  kill_pid_file "$(sub_http_pid_file)" "" >/dev/null 2>&1 || true
   rm -f "$(sub_url_file)"
 }
 
@@ -345,7 +413,12 @@ sub_status() {
 
 ensure_sub() {
   sub_enabled || return 0
-  sub_build_file || print_warn "订阅内容生成失败（可能暂无节点）。"
+  # BUG-10：内容生成失败时不得上报——否则会把上一轮的旧 links.txt 当成新内容
+  # 推送到 Worker（hash 未变还会静默跳过），节点增删后订阅长期不同步。
+  if ! sub_build_file; then
+    print_warn "订阅内容生成失败（可能暂无节点），已跳过本轮上报。"
+    return 1
+  fi
   if [ "$(sub_mode)" = "worker" ]; then
     local links_hash
     links_hash="$(sub_content_hash "$(sub_links_file)" 2>/dev/null || true)"

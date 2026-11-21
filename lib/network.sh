@@ -13,13 +13,16 @@ extract_public_ip() {
   # 原先 tr -d ' ' 会把空格分隔的多个 IP（如 "1.2.3.4 5.6.7.8"）拼接成
   # "1.2.3.45.6.7.8" 这类非法地址，随后被 grep 截段误取成错误 IP。
   raw="$(printf '%s' "${raw}" | tr -d '\r\n' | sed -e 's/^[[:space:]]\{1,\}//' -e 's/[[:space:]]\{1,\}$//')"
-  if [ -n "${raw}" ] && is_ip_address "${raw}"; then
+  # BUG-08：直连分支也要排除内网/保留地址。旧实现只要"像 IP"就接受，
+  # 某些探测源在 NAT/容器环境会回 192.168.x.x，被当成公网 IP 存进设置，
+  # 后续所有分享链接都用错地址。
+  if [ -n "${raw}" ] && is_ip_address "${raw}" && ! is_private_ip "${raw}"; then
     printf '%s' "${raw}"
     return 0
   fi
   if command_exists grep; then
     m="$(printf '%s' "${raw}" | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}|(([0-9a-fA-F]{1,4}:){2,7}[0-9a-fA-F]{0,4})' | grep -vE '^(0\.0\.0\.0|::|0::|::0|127\.)' | head -1 2>/dev/null || true)"
-    if [ -n "${m}" ] && is_ip_address "${m}"; then
+    if [ -n "${m}" ] && is_ip_address "${m}" && ! is_private_ip "${m}"; then
       printf '%s' "${m}"
       return 0
     fi
@@ -65,7 +68,9 @@ get_public_ip() {
 
   # GCP 等云厂商的公网 IP 常为 1:1 NAT，网卡上只有内网地址。
   # 优先从本机元数据读取，不需要外部探测，也不受临时出网故障影响。
-  if command_exists curl; then
+  # BUG-08：ip_version=6 时不能再用 GCP 的 IPv4 元数据——该接口只会返回 IPv4，
+  # 会让纯 IPv6 机器拿到一个不可用的 IPv4 地址。
+  if command_exists curl && [ "${ipver}" != "6" ]; then
     meta_ip="$(curl -fsS --max-time 3 -H 'Metadata-Flavor: Google' \
       'http://169.254.169.254/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip' \
       2>/dev/null | tr -d '\r\n' || true)"
@@ -243,7 +248,17 @@ any_node_port_alive() {
         break
       fi
     done
-    [ "${_status}" = 0 ] && return 0
+    # BUG-08：提前判定存活后，剩余探测子进程仍在跑（最长 SBM_PROBE_TIMEOUT_S）。
+    # 旧实现直接 return，这些进程被遗弃，watchdog 每分钟累积一批僵尸探测。
+    if [ "${_status}" = 0 ]; then
+      for job in "${jobs[@]}"; do
+        kill "${job}" 2>/dev/null || true
+      done
+      for job in "${jobs[@]}"; do
+        wait "${job}" 2>/dev/null || true
+      done
+      return 0
+    fi
     return 1
   fi
   while IFS= read -r tag; do
@@ -401,18 +416,70 @@ system_has_port() {
   [[ " ${_SYSTEM_PORTS} " == *" ${port} "* ]]
 }
 
+# SEC-04：白名单条目校验。只接受合法 IPv4/IPv6（可带 /前缀），
+# 防止把 "0.0.0.0/0" 之外的花样字符串或注入片段写进 iptables。
+is_valid_ip_or_cidr() {
+  local v="$1" addr prefix
+  [ -n "${v}" ] || return 1
+  case "${v}" in
+  */*)
+    addr="${v%%/*}"
+    prefix="${v#*/}"
+    [[ "${prefix}" =~ ^[0-9]{1,3}$ ]] || return 1
+    ;;
+  *)
+    addr="${v}"
+    prefix=""
+    ;;
+  esac
+  case "${addr}" in
+  *:*)
+    [[ "${addr}" =~ ^[0-9A-Fa-f:]+$ ]] || return 1
+    [ -z "${prefix}" ] || [ "${prefix}" -le 128 ] || return 1
+    ;;
+  *)
+    [[ "${addr}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || return 1
+    local o
+    for o in ${addr//./ }; do
+      [ "${o}" -le 255 ] || return 1
+    done
+    [ -z "${prefix}" ] || [ "${prefix}" -le 32 ] || return 1
+    ;;
+  esac
+  return 0
+}
+
+# 当前生效的防火墙后端：ufw / firewalld / iptables / none。
+# BUG-02：旧实现用 `ufw status` 的退出码判定启用状态，但 ufw 在 inactive 时也返回 0，
+# 结果"装了 ufw 但没开"的机器会被当成 ufw 生效，规则写进 ufw 却完全不拦流量。
+fw_backend() {
+  if command_exists ufw && ufw status 2>/dev/null | grep -q '^Status: active'; then
+    printf 'ufw'
+    return 0
+  fi
+  if command_exists firewall-cmd && firewall-cmd --state >/dev/null 2>&1; then
+    printf 'firewalld'
+    return 0
+  fi
+  if command_exists iptables; then
+    printf 'iptables'
+    return 0
+  fi
+  printf 'none'
+}
+
 # 防火墙单端口操作（open|close × tcp|udp）：ufw > firewalld > 裸 iptables。
 # 供 `sbm fw` 与一键安装的自动放行共用；返回 127 表示无可用防火墙工具。
 fw_apply_port() {
   local cmd="$1" proto="$2" port="$3"
-  if command_exists ufw && ufw status >/dev/null 2>&1; then
+  if [ "$(fw_backend)" = "ufw" ]; then
     if [ "${cmd}" = open ]; then
       ufw allow "${port}/${proto}" >/dev/null 2>&1 || return 1
     else
       ufw delete allow "${port}/${proto}" >/dev/null 2>&1 || true
     fi
     return 0
-  elif command_exists firewall-cmd && firewall-cmd --state >/dev/null 2>&1; then
+  elif [ "$(fw_backend)" = "firewalld" ]; then
     if [ "${cmd}" = open ]; then
       firewall-cmd --add-port="${port}/${proto}" >/dev/null 2>&1 &&
         firewall-cmd --permanent --add-port="${port}/${proto}" >/dev/null 2>&1 || return 1
@@ -421,19 +488,23 @@ fw_apply_port() {
       firewall-cmd --permanent --remove-port="${port}/${proto}" >/dev/null 2>&1 || true
     fi
     return 0
-  elif command_exists iptables; then
+  elif [ "$(fw_backend)" = "iptables" ]; then
     local -a rule=(-p "${proto}" --dport "${port}" -m comment --comment "sbm_fw" -j ACCEPT)
-    if [ "${cmd}" = open ]; then
-      iptables -C INPUT "${rule[@]}" >/dev/null 2>&1 && return 0
-      local __err
-      if ! __err="$(iptables -I INPUT "${rule[@]}" 2>&1)"; then
-        [ -n "${__err}" ] && print_warn "iptables: ${__err:0:120}"
-        return 1
+    local ipt rc=0 __err
+    # BUG-02：裸 iptables 路径必须 v4/v6 同步，否则双栈主机上 IPv6 入站仍被丢。
+    for ipt in iptables ip6tables; do
+      command_exists "${ipt}" || continue
+      if [ "${cmd}" = open ]; then
+        "${ipt}" -C INPUT "${rule[@]}" >/dev/null 2>&1 && continue
+        if ! __err="$("${ipt}" -I INPUT "${rule[@]}" 2>&1)"; then
+          [ -n "${__err}" ] && print_warn "${ipt}: ${__err:0:120}"
+          rc=1
+        fi
+      else
+        "${ipt}" -D INPUT "${rule[@]}" >/dev/null 2>&1 || true
       fi
-    else
-      iptables -D INPUT "${rule[@]}" >/dev/null 2>&1 || true
-    fi
-    return 0
+    done
+    return "${rc}"
   fi
   return 127
 }
@@ -457,6 +528,13 @@ fw_auto_open_specs() {
     port="${spec##* }"
     fwproto="$(fw_proto_for_node "${proto}")"
     [ -n "${fwproto}" ] || continue
+    # SEC-04：socks5 开了源地址白名单时，绝不能再放行"对全网的 ACCEPT"，
+    # 否则白名单链形同虚设（旧实现两条规则同时存在，谁先生效取决于插入顺序）。
+    if [ "${proto}" = "socks5" ] && declare -F socks5_whitelist_enabled >/dev/null 2>&1 &&
+      socks5_whitelist_enabled; then
+      print_info "SOCKS5 ${port} 启用白名单，已跳过无条件放行。"
+      continue
+    fi
     fw_apply_port open "${fwproto}" "${port}" && rc=0 || rc=$?
     if [ "${rc}" -eq 0 ]; then
       opened=$((opened + 1))
@@ -469,7 +547,9 @@ fw_auto_open_specs() {
     fi
   done
   if [ "${opened}" -gt 0 ]; then
-    if command_exists iptables-save && [ -d /etc/iptables ]; then
+    # BUG-02：只有裸 iptables 后端需要手工持久化；ufw/firewalld 自带持久化，
+    # 在它们之上额外写 /etc/iptables 会把两套规则库搅在一起。
+    if [ "$(fw_backend)" = "iptables" ] && command_exists iptables-save && [ -d /etc/iptables ]; then
       iptables-save > /etc/iptables/rules.v4 2>/dev/null &&
         ip6tables-save > /etc/iptables/rules.v6 2>/dev/null || true
       print_info "已自动放行 ${opened} 个节点端口，并持久化到 /etc/iptables/rules.v4。"

@@ -119,7 +119,7 @@ sbm un        卸载
 
 分享链接默认使用 IPv4；菜单「9. 全局设置」可切换 `v4 / v6 / auto`（仅双栈机器需要调整）。
 
-## 订阅设置（v1.9.9）
+## 订阅设置（v1.10.0）
 
 推荐使用固定 Worker 订阅：管理器生成全部节点链接的 base64，上报到 [sub-worker](https://github.com/famintt/sub-worker)，客户端使用固定域名；服务器重启后订阅 URL 不变。
 
@@ -136,6 +136,8 @@ bash <(curl -fsSL .../install.sh) rep
 - `sub_domain` 填 Worker 的自定义域名或 `*.workers.dev` 地址；
 - `sub_token` 只填原始值，不要带引号或 `TOKEN=`；
 - `sub_machine` 可选，默认用 `name` 或主机名生成小写 slug；
+- `sub_read_token` 可选：**只读**用的订阅读取密钥，与 `sub_token`（上报写入）分离；两个都配置时上报用写 token、客户端读取用读 token；只配 `sub_token` 时行为与旧版一致，并打印一次"建议拆分"提醒；
+- 静态订阅目录已隔离：对外只服务 `sub/public/`（仅 `index.html` 与 `<token>.txt`），`sub/token`、`sub/links.txt`、`sub/url`、`.report-*` 全部留在 `0700` 私有目录，不再可能被同一个静态服务顺带暴露；
 - 安装完成后会输出：
 
 ```text
@@ -201,6 +203,22 @@ tests/smoke.sh               冒烟测试
 - 安全：`set -eEuo pipefail`、`umask 077`、secrets/证书/pid 全部 600；分享链接 authority 对 IPv6 正确加方括号（不再先做查询参数编码）；`build_share_link` 局部变量隔离（`fp` 不泄漏到全局）
 - CI：shellcheck / bash -n / shfmt / 冒烟测试 / 可复现 bundle 构建 / 版本与 `worker.js` 一致性门禁
 - 上游版本见 `metadata/upstream.env`
+
+## v1.10.0 整改清单（安全 / 可靠性）
+
+本版按第三方审计（P0→P2）逐项落地，回归门禁见 `tests/smoke.sh`：
+
+- **SEC-01 订阅目录隔离**：公网静态服务只挂 `sub/public`；`token`/`links.txt`/`url`/上报临时文件留在 `0700` 私有目录；HTTP 进程按 PID→`/proc/<pid>/cmdline`（darkhttpd / http.server + 端口）校验后才会被杀；订阅内容生成失败时不再上报旧缓存。
+- **SEC-02 MTProxy 加固**：`mtpt_secret` 强校验 `^[0-9a-fA-F]{32}$`，伪装域名按 RFC1123 校验；去掉 `sh -c` 拼接，改为数组直启并记录真实 PID；Telegram secret 拼接只对密钥用 `%b`，域名走 `%s`（不再解释转义）。
+- **SEC-03 服务权限收窄**：systemd 单元去掉 `CAP_NET_RAW`，`ReadWritePaths` 收窄到 `logs/` 与 `runtime/`，`config.json` 与证书目录改为 `ReadOnlyPaths`。
+- **SEC-04 端口暴露**：自动放行提前到 `render_config`/重启**之前**（先放行后监听）；SOCKS5 开启白名单时不再同时插入无条件 ACCEPT；跳转规则插到 `INPUT 1` 并清理同端口历史 `sbm_fw` 规则；CIDR 校验分 IPv4/IPv6；watchdog 每轮补回白名单链，把服务重启造成的暴露窗口压到 ≤1 分钟（非零暴露，见下）。
+- **SEC-05 订阅 token 分权**：新增 `sub_report_token`（写）/`sub_read_token`（读），兼容单 `sub_token` 并告警；网页端新增读取密钥输入框。
+- **A06 对账保护**：`reconcile_state` 用三态判定，JSON 损坏/读失败只告警跳过，不再把有效记录当"不存在"删除。
+- **A07 事务与锁**：锁与回滚目录记录 `BASHPID`，非持有者不得释放锁或回滚；回滚改为按快照目录精确恢复；`rep` 失败回滚后重新拉起 Argo 隧道。
+- **A08 整版本安装回滚**：仓库文件逐个原子安装，任一文件失败整批回滚到升级前；sing-box 内核下载后先校验再原子替换。
+- **BUG 系列**：`ufw` 用 `Status: active` 判定（不再看退出码）；裸 iptables 同步 `ip6tables` 并只在该后端持久化；watchdog 加载 `upstream.env`、去掉 `eval`、假死时先杀旧进程再拉起；`--port/--proto` 缺值报 2 且端口限 1-65535；公网 IP 探测排除内网/TEST-NET 并压缩 IPv6；DoH 地址解析 path 与端口；证书通配符只匹配一级标签且大小写无关；`clash api` 只读路径不再写 `settings.json`；`tune` 补 `net.core.{r,w}mem_max` 并按实际值打印；卸载不再 `pkill -x darkhttpd`（只清本实例）。
+- **SUPPLY-01**：`install.sh.sha256` 由构建脚本生成，`scripts/check-version.sh` 校验其与 `install.sh` 一致。
+- **仍未覆盖**：`lib/render.sh`、`lib/node-auto.sh` 尚未拆到 ≤600 行；sub-worker 侧的三类角色权限拆分属另一个仓库（`famintt/sub-worker`）；白名单恢复依赖 watchdog 周期，不是零暴露；重启瞬间仍可能丢失 INPUT 跳转。
 
 ## 发布流程
 

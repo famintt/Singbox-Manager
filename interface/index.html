@@ -567,6 +567,10 @@
           <label>订阅密钥 <span class="pill">sub_token</span></label>
           <input type="text" id="sub-token" placeholder="sub-worker 的 TOKEN（建议 UUID）">
         </div>
+        <div class="row">
+          <label>订阅读取密钥 <span class="pill">sub_read_token</span> <span class="hint-inline">可选，最小权限</span></label>
+          <input type="text" id="sub-read-token" placeholder="只读密钥；留空则与订阅密钥相同">
+        </div>
         <p class="note">
           需先部署
           <a href="https://github.com/famintt/sub-worker" target="_blank" rel="noopener">sub-worker</a>：
@@ -849,11 +853,14 @@
     // Worker 固定订阅：启用且域名和密钥都填写才下发
     var subDomain = val('sub-domain');
     var subToken = val('sub-token');
+    var subReadToken = val('sub-read-token');
     if (val('sub-mode') === 'on' && subDomain && subToken) {
       envs.push(['sub', "'1'"]);
       envs.push(['sub_mode', "'worker'"]);
       envs.push(['sub_domain', qv(subDomain)]);
       envs.push(['sub_token', qv(subToken)]);
+      // A05：读取方只拿 sub_read_token，泄露它不能改写/删除机器记录。
+      if (subReadToken) envs.push(['sub_read_token', qv(subReadToken)]);
     }
     return wrapCmd(envs, tail);
   }

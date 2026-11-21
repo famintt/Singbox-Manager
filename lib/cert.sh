@@ -9,7 +9,9 @@ umask 077
 _generate_self_signed() {
   local key_file="$1" cert_file="$2" domain="$3"
   local saf extfile alg
-  if [[ "$domain" =~ ^[0-9a-fA-F:.]+$ ]]; then
+  # BUG-09：不能用"只含十六进制字符和点冒号"来判 IP——像 "abcdef"/"dead.beef"
+  # 这类全 hex 的域名会被误判成 IP，签出 subjectAltName=IP:abcdef 的非法证书。
+  if is_ip_address "${domain}"; then
     saf="subjectAltName=IP:${domain}"
   else
     saf="subjectAltName=DNS:${domain}"
@@ -89,18 +91,29 @@ cert_covers_host() {
   local cert_file="$1" host="$2"
   [ -f "${cert_file}" ] || return 1
   [ -n "${host}" ] || return 1
-  local cn san entry base
+  local cn san entry base hprefix
+  # BUG-09：主机名比较必须大小写无关（证书里常为小写，用户输入可能是大写）。
+  local lhost="${host,,}"
   cn="$(openssl x509 -in "${cert_file}" -noout -subject 2>/dev/null | sed -n 's/.*CN *= *\([^,]\{1,\}\).*/\1/p' || true)"
-  [ -n "${cn}" ] && [ "${cn}" = "${host}" ] && return 0
+  [ -n "${cn}" ] && [ "${cn,,}" = "${lhost}" ] && return 0
   san="$(openssl x509 -in "${cert_file}" -noout -ext subjectAltName 2>/dev/null | grep -oE '(DNS|IP Address):[^, ]+' || true)"
   while IFS= read -r entry; do
     [ -n "${entry}" ] || continue
     entry="${entry#*:}"
-    [ "${entry}" = "${host}" ] && return 0
+    entry="${entry,,}"
+    [ "${entry}" = "${lhost}" ] && return 0
     case "${entry}" in
     "*."*)
       base="${entry#\*.}"
-      [ -n "${base}" ] && [ "${host}" != "${base}" ] && [[ "${host}" == *".${base}" ]] && return 0
+      # 通配符只匹配一级标签：*.example.com 命中 a.example.com，不命中 a.b.example.com
+      # （旧实现用后缀匹配，把多级子域也放过了，等于放宽了证书校验范围）
+      [ -n "${base}" ] || continue
+      case "${lhost}" in
+      *".${base}")
+        hprefix="${lhost%".${base}"}"
+        [ -n "${hprefix}" ] && [[ "${hprefix}" != *.* ]] && return 0
+        ;;
+      esac
       ;;
     esac
   done <<<"${san}"

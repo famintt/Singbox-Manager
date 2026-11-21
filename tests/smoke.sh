@@ -67,7 +67,7 @@ esac
 source "${ROOT_DIR}/sb.sh"
 
 # --- v1.9.7 订阅上报变化检测 ---
-assert_eq "VERSION 稳定版 1.9.9" "v1.9.9" "$(tr -d "\r\n" < "${ROOT_DIR}/VERSION")"
+assert_eq "VERSION 稳定版 1.10.0" "v1.10.0" "$(tr -d "\r\n" < "${ROOT_DIR}/VERSION")"
 assert_eval_true "UI 使用 VLESS+Vision+Reality 标签" 'grep -q "VLESS+Vision+Reality" "${ROOT_DIR}/interface/index.html"'
 assert_eval_true "UI 使用 VLESS+XUDP+Reality 标签" 'grep -q "VLESS+XUDP+Reality" "${ROOT_DIR}/interface/index.html"'
 assert_eval_false "UI 不再暴露 XUDP 安全层选项" 'grep -q "vx_security" "${ROOT_DIR}/interface/index.html"'
@@ -219,8 +219,13 @@ json_delete_record "${SECRETS_FILE}" "nmulti"
 
 # 9.5：多源探测响应归一化（裸 IP / 文本 / JSON 字段）
 assert_eq "extract_public_ip 裸 IP 直通" "1.2.3.4" "$(extract_public_ip "  1.2.3.4  ")"
-assert_eq "extract_public_ip 文本含 IP" "203.0.113.9" "$(extract_public_ip "当前 IP：203.0.113.9 来自于：北京市 电信")"
-assert_eq "extract_public_ip JSON data 字段" "198.51.100.7" "$(extract_public_ip '{"ip":"198.51.100.7","detail":"x"}')"
+# 注意：is_private_ip 按 RFC 6890 把 TEST-NET（192.0.2/24、198.51.100/24、203.0.113/24）
+# 也算保留地址，所以这里的固定装置必须用真实可路由的公网 IP。
+assert_eq "extract_public_ip 文本含 IP" "93.184.216.34" "$(extract_public_ip "当前 IP：93.184.216.34 来自于：北京市 电信")"
+assert_eq "extract_public_ip JSON data 字段" "8.8.4.4" "$(extract_public_ip '{"ip":"8.8.4.4","detail":"x"}')"
+# BUG-08：直连/正则分支都不得把内网地址当公网 IP 接受
+assert_eq "extract_public_ip 拒绝内网直连" "" "$(extract_public_ip "192.168.1.10" || true)"
+assert_eq "extract_public_ip 拒绝内网文本" "" "$(extract_public_ip "LAN 地址 10.1.2.3 本机" || true)"
 assert_eval_false "extract_public_ip 无 IP 返回失败" 'extract_public_ip "no ip here"'
 
 # 1.2：clash_api 开关/端口/secret 持久化

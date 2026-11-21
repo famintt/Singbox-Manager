@@ -179,9 +179,10 @@ show_status() {
   echo "cloudflared 版本：$(cloudflared_installed_version)"
   # 1.2：可观测面处于开态时展示实时连接汇总（本地 127.0.0.1 的 clash_api）
   if clash_api_enabled; then
-    local _conns
-    if _conns="$(clash_api_conn_summary 2>/dev/null || true)"; then
-      echo "实时连接：${_conns}"
+    # BUG-09：旧实现用 `|| true` 包住命令替换，退出码恒为 0，else 分支永远不可达。
+    local _conns=""
+    if _conns="$(clash_api_conn_summary 2>/dev/null)"; then
+      echo "实时连接：${_conns:-0 连接}"
     else
       echo "实时连接：不可用（sing-box 未跑或实验面未启用）"
     fi
