@@ -52,10 +52,10 @@ vlrt=2083 hypt=2082 name='HK' sbm rep      # 已安装时
 | `ws_path` | WS 路径 | 随机 |
 | `up_mbps` `down_mbps` | HY2 带宽 | 200 |
 | `socks5_username` `socks5_password` | SOCKS5 账号 | user / 随机 |
-| `net_tune` | 网络内核调优（BBR + fq + 固定 TCP 缓冲，参数对齐 jyucoeng/singbox-tools `bbr.sh`；`0/off/no` 关闭） | 开启 |
+| `net_tune` | 网络内核调优（BBR + fq + 按内存档位的 TCP 缓冲；`0/off/no` 关闭） | 开启 |
 | `net_tune_mtu` | 可选：显式设置默认网卡 MTU（576-9000）；不填表示保持系统现值（推荐，避免破坏 PPPoE/隧道） | 不修改 |
 | `net_tune_fq_quantum` / `net_tune_fq_initial_quantum` | fq qdisc 参数（默认 18028 / 90140） | jyucoeng 默认值 |
-| `net_tune_tcp_rmem_max` / `net_tune_tcp_wmem_max` | TCP 自动调优上限（默认 32MB） | 33554432 |
+| `net_tune_buffer_mb` | 可选：强制 TCP 缓冲 MB；不填时按内存自动（<256MB=16，>=256MB=32） | 自动 |
 | `net_tune_tcp_limit_output_bytes` | 单次发送配额（默认 4MB） | 4194304 |
 | `auto_fw` | 一键安装后自动放行节点端口（ufw/firewalld/iptables；`/etc/iptables` 存在时顺带持久化 rules.v4）；`0/off/no` 关闭 | 开启 |
 | `sub` | `sub=1` 启用订阅生成；配合 `sub_mode=worker` 上报到 sub-worker | 关闭 |
@@ -197,7 +197,7 @@ tests/smoke.sh               冒烟测试
 - 保活：systemd 环境用 service + timer；OpenRC/无 systemd 用 cron + pidfile，cloudflared 异常退出约 1 分钟内自动拉起
 - WS-TLS CDN 证书方案：CDN 中转统一单端口（`wspt`=回源端口），Cloudflare SSL 用 Full/Full(Strict) 以 HTTPS 回源；`cert=self` 自签即可支持 Full，`cert=custom` 供 Full(Strict) 用 Cloudflare Origin CA 证书；已废弃 `ws_cdn_origin_port` 明文回源。
 - WS-TLS CDN 证书粘贴式导入：`cert=custom` 时界面直接把 PEM 证书/私钥内容粘贴进命令（`cert_b64`/`key_b64`），服务器解码写入托管目录自动加载，无需先上传文件；`cert_path`/`key_path` 文件路径方式保留兼容。
-- 网络内核调优（v1.6.0，参数对齐 [jyucoeng/singbox-tools bbr.sh](https://github.com/jyucoeng/singbox-tools)）：默认启用 `BBR + fq`，**不再测速/不再推断带宽**，固定使用 `fq quantum=18028 initial_quantum=90140`、`tcp_rmem=4096 131072 33554432`、`tcp_wmem=4096 16384 33554432`、`tcp_limit_output_bytes=4194304`；持久化到 `/etc/sysctl.d/99-singbox-manager-net-tune.conf`，watchdog 每分钟检查并补齐重启后丢失的 fq qdisc（容器 noqueue 网卡自动跳过）；菜单 **8. BBR+FQ+缓存设置** 可随时重应用/查看，无任何网络测速环节。
+- 网络内核调优（统一标准，默认启用）：`BBR + fq`，**不测速、不推断带宽**；TCP 缓冲按物理内存选择：`<256MB` 用 16MB，`>=256MB` 用 32MB；`tcp_mem` 按 `max=min(RAM/4,128MB)`（下限 16MB）、`low=max/4`、`pressure=max/2` 推导；收发默认 256KB，并补齐 `somaxconn/netdev_max_backlog/tcp_fastopen/tcp_mtu_probing/tcp_tw_reuse/ip_local_port_range/tcp_slow_start_after_idle=0`；不设 `tcp_notsent_lowat`。参数持久化到 `/etc/sysctl.d/99-singbox-manager-net-tune.conf`，watchdog 每分钟检查并补齐重启后丢失的 fq qdisc（容器 noqueue 网卡自动跳过）；菜单 **8. BBR+FQ+统一网络调优** 可随时重应用/查看。
 - 按需交付：`cloudflared` 仅在启用 Argo（环境变量 `argo` 或已存在 `vless-argo` 节点）时安装；纯 Reality/WS/TUIC/HY2/SOCKS5 部署不再白占约 40MB 磁盘；无 Argo 时更新/重装会自动回收未使用的 cloudflared，添加 Argo 节点时再按需安装。
 - 输出格式：`sbm list` / 安装结果改为**名称一行、分享链接单独顶格一行**（前后留空行），终端里双击/三击即可整行复制，不再把"链接: "前缀和 URL 混排。
 - 安全：`set -eEuo pipefail`、`umask 077`、secrets/证书/pid 全部 600；分享链接 authority 对 IPv6 正确加方括号（不再先做查询参数编码）；`build_share_link` 局部变量隔离（`fp` 不泄漏到全局）

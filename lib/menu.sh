@@ -106,7 +106,7 @@ main_menu() {
     echo "5. 重启服务"
     echo "6. 查看状态"
     echo "7. 更新项目文件"
-    echo "8. BBR+FQ+缓存设置"
+    echo "8. BBR+FQ+统一网络调优"
     echo "9. 全局设置"
     echo "10. 卸载"
     echo "0. 退出"

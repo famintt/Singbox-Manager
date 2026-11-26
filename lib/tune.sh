@@ -3,17 +3,21 @@ set -Eeuo pipefail
 
 umask 077
 
-# 固定参数对齐 jyucoeng/singbox-tools 的 bbr.sh（v1.4.2，2026-09-10）：
-#   fq quantum=18028 / initial_quantum=90140
-#   tcp_wmem=4096 16384 33554432 / tcp_rmem=4096 131072 33554432
-#   tcp_limit_output_bytes=4194304
-# 刻意不再做测速/延迟推断/带宽档位：参数固定、可重复、无网络依赖。
+# 统一调优标准（2026-11-26）：
+#   - 内存 <256MB：TCP 缓冲 16MB；>=256MB：32MB
+#   - tcp_mem 按内存推导：low=1/4 max、pressure=1/2 max、max=RAM/4，上限 128MB
+#   - tcp_wmem/tcp_rmem 默认 256KB，上限跟随内存档位
+#   - fq quantum=18028 / initial_quantum=90140
+#   - 不做测速/延迟推断/带宽档位：参数可重复、无网络依赖
 NET_TUNE_FQ_QUANTUM="${NET_TUNE_FQ_QUANTUM:-18028}"
 NET_TUNE_FQ_INITIAL_QUANTUM="${NET_TUNE_FQ_INITIAL_QUANTUM:-90140}"
-NET_TUNE_TCP_RMEM_MAX="${NET_TUNE_TCP_RMEM_MAX:-33554432}"
-NET_TUNE_TCP_WMEM_MAX="${NET_TUNE_TCP_WMEM_MAX:-33554432}"
 NET_TUNE_TCP_LIMIT_OUTPUT_BYTES="${NET_TUNE_TCP_LIMIT_OUTPUT_BYTES:-4194304}"
 NET_TUNE_SYSCTL_FILE="${NET_TUNE_SYSCTL_FILE:-/etc/sysctl.d/99-singbox-manager-net-tune.conf}"
+NET_TUNE_BUFFER_SMALL_MB=16
+NET_TUNE_BUFFER_LARGE_MB=32
+NET_TUNE_BUFFER_THRESHOLD_KB=262144
+NET_TUNE_SOCKET_DEFAULT_BYTES=262144
+NET_TUNE_TCP_MEM_MAX_CAP_BYTES=134217728
 
 go_gc_requested() {
   [ "$(manager_env_or_setting "go_gc")" = "off" ] && return 0
@@ -39,11 +43,60 @@ net_tune_number() {
   fi
 }
 
+net_tune_mem_kb() {
+  local value="${NET_TUNE_MEM_KB:-}"
+  if [[ "${value}" =~ ^[0-9]+$ ]] && [ "${value}" -gt 0 ]; then
+    printf '%s' "${value}"
+    return 0
+  fi
+  awk '/^MemTotal:/ {print $2; exit}' /proc/meminfo 2>/dev/null || printf '0'
+}
+
+net_tune_buffer_mb() {
+  local value mem_kb
+  value="$(manager_env_or_setting "net_tune_buffer_mb" "")"
+  if [[ "${value}" =~ ^[0-9]+$ ]] && [ "${value}" -gt 0 ]; then
+    printf '%s' "${value}"
+    return 0
+  fi
+  mem_kb="$(net_tune_mem_kb)"
+  if [[ "${mem_kb}" =~ ^[0-9]+$ ]] && [ "${mem_kb}" -lt "${NET_TUNE_BUFFER_THRESHOLD_KB}" ]; then
+    printf '%s' "${NET_TUNE_BUFFER_SMALL_MB}"
+  else
+    printf '%s' "${NET_TUNE_BUFFER_LARGE_MB}"
+  fi
+}
+
+# tcp_mem 使用「页」为单位，返回 low pressure max。
+net_tune_tcp_mem_pages() {
+  local mem_kb page_size pages max_pages cap_pages floor_pages low pressure
+  mem_kb="$(net_tune_mem_kb)"
+  [[ "${mem_kb}" =~ ^[0-9]+$ ]] && [ "${mem_kb}" -gt 0 ] || mem_kb=262144
+  page_size="$(getconf PAGESIZE 2>/dev/null || printf '4096')"
+  [[ "${page_size}" =~ ^[0-9]+$ ]] && [ "${page_size}" -gt 0 ] || page_size=4096
+  pages=$((mem_kb * 1024 / page_size))
+  [ "${pages}" -gt 0 ] || pages=262144
+  max_pages=$((pages / 4))
+  cap_pages=$((NET_TUNE_TCP_MEM_MAX_CAP_BYTES / page_size))
+  floor_pages=$((16 * 1024 * 1024 / page_size))
+  [ "${max_pages}" -gt "${cap_pages}" ] && max_pages="${cap_pages}"
+  [ "${max_pages}" -lt "${floor_pages}" ] && max_pages="${floor_pages}"
+  low=$((max_pages / 4))
+  pressure=$((max_pages / 2))
+  [ "${low}" -lt 1 ] && low=1
+  [ "${pressure}" -le "${low}" ] && pressure=$((low + 1))
+  printf '%s %s %s' "${low}" "${pressure}" "${max_pages}"
+}
+
 net_tune_values() {
+  local buffer_mb
   NET_TUNE_FQ_QUANTUM="$(net_tune_number "net_tune_fq_quantum" "${NET_TUNE_FQ_QUANTUM}")"
   NET_TUNE_FQ_INITIAL_QUANTUM="$(net_tune_number "net_tune_fq_initial_quantum" "${NET_TUNE_FQ_INITIAL_QUANTUM}")"
-  NET_TUNE_TCP_RMEM_MAX="$(net_tune_number "net_tune_tcp_rmem_max" "${NET_TUNE_TCP_RMEM_MAX}")"
-  NET_TUNE_TCP_WMEM_MAX="$(net_tune_number "net_tune_tcp_wmem_max" "${NET_TUNE_TCP_WMEM_MAX}")"
+  buffer_mb="$(net_tune_buffer_mb)"
+  NET_TUNE_BUFFER_MB="${buffer_mb}"
+  NET_TUNE_TCP_RMEM_MAX=$((buffer_mb * 1024 * 1024))
+  NET_TUNE_TCP_WMEM_MAX=$((buffer_mb * 1024 * 1024))
+  NET_TUNE_TCP_MEM="$(net_tune_tcp_mem_pages)"
   NET_TUNE_TCP_LIMIT_OUTPUT_BYTES="$(net_tune_number "net_tune_tcp_limit_output_bytes" "${NET_TUNE_TCP_LIMIT_OUTPUT_BYTES}")"
 }
 
@@ -88,7 +141,7 @@ write_net_tune_sysctl_file() {
   local tmp
   tmp="$(mktemp "${NET_TUNE_SYSCTL_FILE}.XXXXXX" 2>/dev/null)" || tmp="$(mktemp 2>/dev/null)" || return 1
   {
-    echo "# singbox-manager net_tune：参数对齐 jyucoeng/singbox-tools bbr.sh，开机自动加载"
+    echo "# singbox-manager net_tune：统一标准（内存档位 + tcp_mem + 连接参数），开机自动加载"
     echo "net.ipv4.tcp_congestion_control=bbr"
     # 容器/精简内核可能根本没有 default_qdisc 节点，写进去会在 sysctl -p 时报错
     [ -e /proc/sys/net/core/default_qdisc ] && echo "net.core.default_qdisc=fq"
@@ -96,9 +149,20 @@ write_net_tune_sysctl_file() {
     # 约束，二者不放开时 socket 缓冲区仍被钳在默认 208KB。
     echo "net.core.wmem_max=${NET_TUNE_TCP_WMEM_MAX}"
     echo "net.core.rmem_max=${NET_TUNE_TCP_RMEM_MAX}"
-    echo "net.ipv4.tcp_wmem=4096 16384 ${NET_TUNE_TCP_WMEM_MAX}"
-    echo "net.ipv4.tcp_rmem=4096 131072 ${NET_TUNE_TCP_RMEM_MAX}"
+    echo "net.core.wmem_default=${NET_TUNE_SOCKET_DEFAULT_BYTES}"
+    echo "net.core.rmem_default=${NET_TUNE_SOCKET_DEFAULT_BYTES}"
+    echo "net.ipv4.tcp_wmem=4096 ${NET_TUNE_SOCKET_DEFAULT_BYTES} ${NET_TUNE_TCP_WMEM_MAX}"
+    echo "net.ipv4.tcp_rmem=4096 ${NET_TUNE_SOCKET_DEFAULT_BYTES} ${NET_TUNE_TCP_RMEM_MAX}"
+    echo "net.ipv4.tcp_mem=${NET_TUNE_TCP_MEM}"
     echo "net.ipv4.tcp_limit_output_bytes=${NET_TUNE_TCP_LIMIT_OUTPUT_BYTES}"
+    echo "net.core.netdev_max_backlog=8192"
+    echo "net.core.somaxconn=4096"
+    echo "net.ipv4.tcp_max_syn_backlog=8192"
+    echo "net.ipv4.tcp_fastopen=3"
+    echo "net.ipv4.tcp_mtu_probing=1"
+    echo "net.ipv4.tcp_tw_reuse=1"
+    echo "net.ipv4.ip_local_port_range=10000 65535"
+    echo "net.ipv4.tcp_slow_start_after_idle=0"
   } >"${tmp}" 2>/dev/null || {
     rm -f "${tmp}"
     return 1
@@ -118,10 +182,21 @@ apply_sysctls() {
   local -a keys=(
     net.core.wmem_max "${NET_TUNE_TCP_WMEM_MAX}"
     net.core.rmem_max "${NET_TUNE_TCP_RMEM_MAX}"
+    net.core.wmem_default "${NET_TUNE_SOCKET_DEFAULT_BYTES}"
+    net.core.rmem_default "${NET_TUNE_SOCKET_DEFAULT_BYTES}"
     net.ipv4.tcp_congestion_control bbr
-    net.ipv4.tcp_wmem "4096 16384 ${NET_TUNE_TCP_WMEM_MAX}"
-    net.ipv4.tcp_rmem "4096 131072 ${NET_TUNE_TCP_RMEM_MAX}"
+    net.ipv4.tcp_wmem "4096 ${NET_TUNE_SOCKET_DEFAULT_BYTES} ${NET_TUNE_TCP_WMEM_MAX}"
+    net.ipv4.tcp_rmem "4096 ${NET_TUNE_SOCKET_DEFAULT_BYTES} ${NET_TUNE_TCP_RMEM_MAX}"
+    net.ipv4.tcp_mem "${NET_TUNE_TCP_MEM}"
     net.ipv4.tcp_limit_output_bytes "${NET_TUNE_TCP_LIMIT_OUTPUT_BYTES}"
+    net.core.netdev_max_backlog 8192
+    net.core.somaxconn 4096
+    net.ipv4.tcp_max_syn_backlog 8192
+    net.ipv4.tcp_fastopen 3
+    net.ipv4.tcp_mtu_probing 1
+    net.ipv4.tcp_tw_reuse 1
+    net.ipv4.ip_local_port_range "10000 65535"
+    net.ipv4.tcp_slow_start_after_idle 0
   )
   # default_qdisc 只在节点存在时才是有效键（Docker/LXC 常见缺失）
   if [ -e /proc/sys/net/core/default_qdisc ]; then
@@ -146,8 +221,7 @@ apply_sysctls() {
   fi
 
   if [ "${ok}" = "true" ]; then
-    # P3：不再硬编码 "32MB"，缓冲值可被 env/设置改写，日志要反映实际生效值
-    print_ok "已应用 BBR + fq + TCP 缓冲（rmem_max=$((NET_TUNE_TCP_RMEM_MAX / 1024 / 1024))MB wmem_max=$((NET_TUNE_TCP_WMEM_MAX / 1024 / 1024))MB tcp_limit_output_bytes=${NET_TUNE_TCP_LIMIT_OUTPUT_BYTES}）。"
+    print_ok "已应用统一网络调优：BBR + fq + TCP 缓冲 ${NET_TUNE_BUFFER_MB}MB（rmem_max=${NET_TUNE_TCP_RMEM_MAX} wmem_max=${NET_TUNE_TCP_WMEM_MAX} tcp_mem=${NET_TUNE_TCP_MEM}）。"
   else
     print_warn "部分 sysctl 写入失败：${err}（容器/精简内核可能限制网络参数，其余项已生效）。"
   fi
@@ -247,7 +321,11 @@ net_tune_status() {
   iface="$(net_tune_default_iface 2>/dev/null || true)"
   echo "------------------ BBR / TCP ------------------"
   sysctl net.ipv4.tcp_congestion_control net.core.default_qdisc \
-    net.ipv4.tcp_rmem net.ipv4.tcp_wmem net.ipv4.tcp_limit_output_bytes 2>/dev/null || echo "(部分内核项不可用)"
+    net.core.rmem_max net.core.wmem_max net.core.rmem_default net.core.wmem_default \
+    net.ipv4.tcp_rmem net.ipv4.tcp_wmem net.ipv4.tcp_mem \
+    net.ipv4.tcp_limit_output_bytes net.ipv4.tcp_slow_start_after_idle \
+    net.ipv4.tcp_fastopen net.ipv4.tcp_mtu_probing net.core.somaxconn \
+    net.core.netdev_max_backlog 2>/dev/null || echo "(部分内核项不可用)"
   echo "------------------ fq qdisc -------------------"
   if [ -n "${iface}" ] && command_exists tc; then
     echo "网卡: ${iface}"
@@ -265,8 +343,9 @@ net_tune_display_values() {
   if [ -n "${iface}" ] && [ "${iface}" != "未检测到" ] && command_exists tc; then
     qdisc="$(tc qdisc show dev "${iface}" 2>/dev/null | head -n 1 || true)"
   fi
-  printf '参数：fq quantum %s / initial_quantum %s；TCP 缓冲 32MB；limit_output %s 字节\n' \
+  printf '参数：fq quantum %s / initial_quantum %s；TCP 缓冲 %sMB；tcp_mem %s；limit_output %s 字节\n' \
     "$(hl_num "${NET_TUNE_FQ_QUANTUM}")" "$(hl_num "${NET_TUNE_FQ_INITIAL_QUANTUM}")" \
+    "$(hl_num "${NET_TUNE_BUFFER_MB}")" "${NET_TUNE_TCP_MEM}" \
     "$(hl_num "${NET_TUNE_TCP_LIMIT_OUTPUT_BYTES}")"
   printf '网卡：%s | MTU：%s | qdisc：%s\n' \
     "${iface}" "${mtu:-保持系统默认}" "${qdisc:-不可用}"
@@ -277,7 +356,7 @@ net_tune_menu() {
   while true; do
     net_tune_values
     print_header
-    echo "BBR+FQ+缓存设置（固定参数，无测速）"
+    echo "BBR+FQ+统一网络调优（内存档位，无测速）"
     echo
     net_tune_display_values
     echo

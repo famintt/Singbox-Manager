@@ -67,7 +67,7 @@ esac
 source "${ROOT_DIR}/sb.sh"
 
 # --- v1.9.7 订阅上报变化检测 ---
-assert_eq "VERSION 稳定版 2.0.0" "v2.0.0" "$(tr -d "\r\n" < "${ROOT_DIR}/VERSION")"
+assert_eq "VERSION 稳定版 2.0.1" "v2.0.1" "$(tr -d "\r\n" < "${ROOT_DIR}/VERSION")"
 assert_eval_true "UI 使用 VLESS+Vision+Reality 标签" 'grep -q "VLESS+Vision+Reality" "${ROOT_DIR}/interface/index.html"'
 assert_eval_true "UI 使用 VLESS+XUDP+Reality 标签" 'grep -q "VLESS+XUDP+Reality" "${ROOT_DIR}/interface/index.html"'
 assert_eval_false "UI 不再暴露 XUDP 安全层选项" 'grep -q "vx_security" "${ROOT_DIR}/interface/index.html"'
@@ -796,15 +796,35 @@ assert_eq "fq initial_quantum 默认 90140" "90140" "$(
   net_tune_values
   printf '%s' "${NET_TUNE_FQ_INITIAL_QUANTUM}"
 )"
-assert_eq "tcp_rmem 上限默认 32MB" "33554432" "$(
-  unset net_tune_tcp_rmem_max
+assert_eq "tcp 缓冲 128MB 机器为 16MB" "16777216" "$(
+  unset -v net_tune_buffer_mb
+  NET_TUNE_MEM_KB=131072
   net_tune_values
   printf '%s' "${NET_TUNE_TCP_RMEM_MAX}"
 )"
-assert_eq "tcp_wmem 上限默认 32MB" "33554432" "$(
-  unset net_tune_tcp_wmem_max
+assert_eq "tcp 缓冲 256MB 机器为 32MB" "33554432" "$(
+  unset -v net_tune_buffer_mb
+  NET_TUNE_MEM_KB=262144
   net_tune_values
   printf '%s' "${NET_TUNE_TCP_WMEM_MAX}"
+)"
+assert_eq "tcp_mem 128MB 安全公式" "2048 4096 8192" "$(
+  NET_TUNE_MEM_KB=131072
+  net_tune_tcp_mem_pages
+)"
+assert_eq "tcp_mem 256MB 安全公式" "4096 8192 16384" "$(
+  NET_TUNE_MEM_KB=262144
+  net_tune_tcp_mem_pages
+)"
+assert_eq "tcp_mem 大内存上限封顶 128MB" "8192 16384 32768" "$(
+  NET_TUNE_MEM_KB=1048576
+  net_tune_tcp_mem_pages
+)"
+assert_eq "tcp 缓冲可显式覆写" "20971520" "$(
+  net_tune_buffer_mb=20
+  NET_TUNE_MEM_KB=131072
+  net_tune_values
+  printf '%s' "${NET_TUNE_TCP_RMEM_MAX}"
 )"
 assert_eq "tcp_limit_output 默认 4MB" "4194304" "$(
   unset net_tune_tcp_limit_output_bytes
@@ -1026,6 +1046,8 @@ assert_eq "命名：小写机器名+Reality" "hk-yt-Reality" "$(ENV_NAME=hk-yt n
 assert_eq "命名：大小写机器名+AnyTLS" "HK-YT-AnyTLS" "$(ENV_NAME=HK-YT node_display_name AnyTLS)"
 assert_eq "命名：TUIC" "TUIC" "$(ENV_NAME= node_display_name TUIC)"
 assert_eq "命名：XUDP" "MiXeD-XUDP" "$(ENV_NAME=MiXeD node_display_name XUDP)"
+
+
 
 delete_all_nodes >/dev/null 2>&1 || true
 rm -rf "${TEST_ROOT}"

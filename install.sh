@@ -47,10 +47,10 @@ umask 077
 
 REPO_OWNER="famintt"
 REPO_NAME="Singbox-Manager"
-PROJECT_VERSION="v2.0.0"
-PACKAGE_NAME="singbox-manager-v2.0.0.tar.gz"
+PROJECT_VERSION="v2.0.1"
+PACKAGE_NAME="singbox-manager-v2.0.1.tar.gz"
 # 发布流程：scripts/build-release-bundle.sh 构建可复现 bundle，其 SHA256 与此处一致
-PACKAGE_SHA256="6051515b4affdae54dae6a627e8e74618ce7d29bd2109360d6e1d592d291040a"
+PACKAGE_SHA256="9696572700e84802671cc547b5d9dd4bce1d5aaa188fd49950cf66f939cb9325"
 PACKAGE_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${PROJECT_VERSION}/${PACKAGE_NAME}"
 
 # P3：失败路径（下载中断、校验不通过、解包失败）会留下 mktemp 目录/文件；
